@@ -7,7 +7,16 @@ import (
 	"fmt"
 	"net/url"
 	"strings"
+
+	"github.com/legitYosal/vmware-s3-backup/pkg/nbdkit"
 )
+
+type VddkConfig struct {
+	Debug       bool
+	Endpoint    *url.URL
+	Thumbprint  string
+	Compression nbdkit.CompressionMethod
+}
 
 func GetEndpointThumbprint(url *url.URL) (string, error) {
 	config := tls.Config{

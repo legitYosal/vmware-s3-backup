@@ -8,13 +8,13 @@ import (
 	"time"
 )
 
-type NbdkitServer struct {
+type NbdkitSocket struct {
 	cmd     *exec.Cmd
 	socket  string
 	pidFile string
 }
 
-func (s *NbdkitServer) Start() error {
+func (s *NbdkitSocket) Start() error {
 	s.cmd.Stdout = os.Stdout
 	s.cmd.Stderr = os.Stderr
 
@@ -39,7 +39,7 @@ func (s *NbdkitServer) Start() error {
 	}
 }
 
-func (s *NbdkitServer) Stop() error {
+func (s *NbdkitSocket) Stop() error {
 	if err := s.cmd.Process.Kill(); err != nil {
 		return fmt.Errorf("failed to stop nbdkit server: %w", err)
 	}
@@ -48,10 +48,10 @@ func (s *NbdkitServer) Stop() error {
 	return nil
 }
 
-func (s *NbdkitServer) Socket() string {
+func (s *NbdkitSocket) Socket() string {
 	return s.socket
 }
 
-func (s *NbdkitServer) LibNBDExportName() string {
+func (s *NbdkitSocket) LibNBDExportName() string {
 	return fmt.Sprintf("nbd+unix:///?socket=%s", s.socket)
 }

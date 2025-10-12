@@ -11,7 +11,6 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 	"github.com/legitYosal/vmware-s3-backup/pkg/nbdkit"
 	"github.com/legitYosal/vmware-s3-backup/pkg/vmware"
-	"github.com/legitYosal/vmware-s3-backup/pkg/vmware_nbdkit"
 	"github.com/vmware/govmomi/find"
 	"github.com/vmware/govmomi/session"
 	"github.com/vmware/govmomi/session/keepalive"
@@ -44,12 +43,11 @@ func NewClientConfig(vmwareURL, vmwareUsername, vmwarePassword, s3URL, s3SecretK
 	}
 }
 
-type Client struct {
-	config        Config
-	vmwareFinder  *find.Finder
-	s3Client      *s3.Client
-	vddkConfig    *vmware_nbdkit.VddkConfig
-	nbdkitServers *vmware_nbdkit.NbdkitServers
+type VmwareS3BackupClient struct {
+	Configuration Config
+	VmwareFinder  *find.Finder
+	S3Client      *s3.Client
+	VDDKConfig    *vmware.VddkConfig
 }
 
 type VMData struct {
@@ -62,7 +60,7 @@ type VMData struct {
 	// Disk   int
 }
 
-func NewClient(cfg Config) (*Client, error) {
+func NewClient(cfg Config) (*VmwareS3BackupClient, error) {
 	if cfg.VMWareURL == "" {
 		return nil, fmt.Errorf("vcenter URL must be provided")
 	}
@@ -87,18 +85,18 @@ func NewClient(cfg Config) (*Client, error) {
 	if cfg.S3Region == "" {
 		return nil, fmt.Errorf("s3 region must be provided")
 	}
-	c := &Client{
-		config: cfg,
+	c := &VmwareS3BackupClient{
+		Configuration: cfg,
 	}
 
 	return c, nil
 }
 
-func (c *Client) ConnectToVMware(ctx context.Context) error {
+func (c *VmwareS3BackupClient) ConnectToVMware(ctx context.Context) error {
 	endpointURL := &url.URL{
 		Scheme: "https",
-		Host:   c.config.VMWareURL,
-		User:   url.UserPassword(c.config.VMWareUsername, c.config.VMWarePassword),
+		Host:   c.Configuration.VMWareURL,
+		User:   url.UserPassword(c.Configuration.VMWareUsername, c.Configuration.VMWarePassword),
 		Path:   "sdk",
 	}
 	// thumbprint, err := vmware.GetEndpointThumbprint(endpointURL)
@@ -123,48 +121,47 @@ func (c *Client) ConnectToVMware(ctx context.Context) error {
 	}
 
 	finder := find.NewFinder(vimClient)
-	c.vmwareFinder = finder
+	c.VmwareFinder = finder
 	return nil
 }
 
-func (c *Client) ConnectToS3(ctx context.Context) error {
+func (c *VmwareS3BackupClient) ConnectToS3(ctx context.Context) error {
 	cfg, err := S3Config.LoadDefaultConfig(ctx,
-		S3Config.WithCredentialsProvider(credentials.NewStaticCredentialsProvider(c.config.S3AccessKey, c.config.S3SecretKey, "")),
-		S3Config.WithRegion(c.config.S3Region),
+		S3Config.WithCredentialsProvider(credentials.NewStaticCredentialsProvider(c.Configuration.S3AccessKey, c.Configuration.S3SecretKey, "")),
+		S3Config.WithRegion(c.Configuration.S3Region),
 	)
 	if err != nil {
 		return fmt.Errorf("failed to load AWS config: %w", err)
 	}
 	s3Client := s3.NewFromConfig(cfg, func(o *s3.Options) {
-		o.BaseEndpoint = &c.config.S3URL
+		o.BaseEndpoint = &c.Configuration.S3URL
 		o.UsePathStyle = true
 	})
-	c.s3Client = s3Client
+	c.S3Client = s3Client
 	return nil
 }
 
-func (c *Client) InitNbdkit(ctx context.Context) error {
+func (c *VmwareS3BackupClient) InitNbdkit(ctx context.Context) error {
 	endpointURL := &url.URL{
 		Scheme: "https",
-		Host:   c.config.VMWareURL,
-		User:   url.UserPassword(c.config.VMWareUsername, c.config.VMWarePassword),
+		Host:   c.Configuration.VMWareURL,
+		User:   url.UserPassword(c.Configuration.VMWareUsername, c.Configuration.VMWarePassword),
 		Path:   "sdk",
 	}
 	thumbprint, err := vmware.GetEndpointThumbprint(endpointURL)
 	if err != nil {
 		return err
 	}
-	c.vddkConfig = &vmware_nbdkit.VddkConfig{
+	c.VDDKConfig = &vmware.VddkConfig{
 		Debug:       true,
 		Endpoint:    endpointURL,
 		Thumbprint:  thumbprint,
 		Compression: nbdkit.NoCompression, // NOTE migratekit supports more
 	}
-	c.nbdkitServers = vmware_nbdkit.NewNbdkitServers(c.vddkConfig)
 	return nil
 }
 
-func (c *Client) Connect(ctx context.Context) error {
+func (c *VmwareS3BackupClient) Connect(ctx context.Context) error {
 	c.ConnectToVMware(ctx)
 	c.ConnectToS3(ctx)
 	c.InitNbdkit(ctx)
@@ -172,8 +169,8 @@ func (c *Client) Connect(ctx context.Context) error {
 }
 
 // FullCopy performs a full backup of a VM to the configured S3 bucket.
-func (c *Client) FullCopy(ctx context.Context, vmName string) error {
-	fmt.Printf("--> (Library) Starting FULL backup for VM '%s' to bucket '%s'\n", vmName, c.config.S3BucketName)
+func (c *VmwareS3BackupClient) FullCopy(ctx context.Context, vmName string) error {
+	fmt.Printf("--> (Library) Starting FULL backup for VM '%s' to bucket '%s'\n", vmName, c.Configuration.S3BucketName)
 	//
 	// THIS IS WHERE YOUR FULL COPY LOGIC FROM OUR PREVIOUS DISCUSSION GOES
 	//
@@ -182,7 +179,7 @@ func (c *Client) FullCopy(ctx context.Context, vmName string) error {
 }
 
 // IncrementalCopy performs an incremental backup.
-func (c *Client) IncrementalCopy(ctx context.Context, vmName string) error {
+func (c *VmwareS3BackupClient) IncrementalCopy(ctx context.Context, vmName string) error {
 	fmt.Printf("--> (Library) Starting INCREMENTAL backup for VM '%s'\n", vmName)
 	//
 	// THIS IS WHERE YOUR INCREMENTAL LOGIC GOES
@@ -190,8 +187,8 @@ func (c *Client) IncrementalCopy(ctx context.Context, vmName string) error {
 	return nil
 }
 
-func (c *Client) FindVMByPath(ctx context.Context, vmPath string) (*vmware.CompleteVirtualMachine, error) {
-	vm, err := c.vmwareFinder.VirtualMachine(ctx, vmPath)
+func (c *VmwareS3BackupClient) FindVMByPath(ctx context.Context, vmPath string) (*DetailedVirtualMachine, error) {
+	vm, err := c.VmwareFinder.VirtualMachine(ctx, vmPath)
 	if err != nil {
 		return nil, err
 	}
@@ -200,15 +197,15 @@ func (c *Client) FindVMByPath(ctx context.Context, vmPath string) (*vmware.Compl
 	if err != nil {
 		return nil, err
 	}
-	return &vmware.CompleteVirtualMachine{
-		M: vm,
-		O: &o,
+	return &DetailedVirtualMachine{
+		Ref:        vm,
+		Properties: &o,
 	}, nil
 }
 
-func (c *Client) ListVMs(ctx context.Context) ([]VMData, error) {
+func (c *VmwareS3BackupClient) ListVMs(ctx context.Context) ([]VMData, error) {
 	var vmData []VMData
-	vmList, err := c.vmwareFinder.VirtualMachineList(ctx, "*")
+	vmList, err := c.VmwareFinder.VirtualMachineList(ctx, "*")
 	if err != nil {
 		return nil, fmt.Errorf("failed to list VMs: %w", err)
 	}
