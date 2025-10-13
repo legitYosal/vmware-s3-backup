@@ -29,6 +29,7 @@ type DetailedVirtualMachine struct {
 	SnapshotRef    *DetailedSnapshot
 	S3BackupClient *VmwareS3BackupClient
 }
+
 type DiskSocket struct {
 	Disk      *types.VirtualDisk
 	SocketRef *nbdkit.NbdkitSocket
@@ -50,6 +51,15 @@ func (c *DetailedVirtualMachine) FindAndConsolidateDanglingSnapshot(ctx context.
 			return err
 		}
 		return nil
+	}
+	return nil
+}
+
+func (c *DetailedVirtualMachine) ConsolidateDanglingSnapshot(ctx context.Context, snapshotRef *types.ManagedObjectReference) error {
+	consolidate := true
+	_, err := c.Ref.RemoveSnapshot(ctx, snapshotRef.Value, false, &consolidate)
+	if err != nil {
+		return err
 	}
 	return nil
 }
@@ -148,6 +158,25 @@ func (c *DetailedVirtualMachine) Stop(ctx context.Context) error {
 		if err := socket.SocketRef.Stop(); err != nil {
 			return err
 		}
+	}
+	return nil
+}
+
+func (c *DetailedVirtualMachine) StartCycle(ctx context.Context) error {
+	ok, err := c.CheckCBTEnabled()
+	if err != nil {
+		return err
+	}
+	if !ok {
+		return fmt.Errorf("CBT is not enabled for this VM")
+	}
+	err = c.FindAndConsolidateDanglingSnapshot(ctx)
+	if err != nil {
+		return err
+	}
+	err = c.StartNBDSockets(ctx)
+	if err != nil {
+		return err
 	}
 	return nil
 }

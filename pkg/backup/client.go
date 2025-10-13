@@ -9,6 +9,7 @@ import (
 	S3Config "github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/credentials"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
+	"github.com/legitYosal/vmware-s3-backup/pkg/config"
 	"github.com/legitYosal/vmware-s3-backup/pkg/nbdkit"
 	"github.com/legitYosal/vmware-s3-backup/pkg/vmware"
 	"github.com/vmware/govmomi/find"
@@ -19,32 +20,8 @@ import (
 	"github.com/vmware/govmomi/vim25/soap"
 )
 
-type Config struct {
-	VMWareURL      string
-	VMWareUsername string
-	VMWarePassword string
-	S3URL          string
-	S3SecretKey    string
-	S3AccessKey    string
-	S3BucketName   string
-	S3Region       string
-}
-
-func NewClientConfig(vmwareURL, vmwareUsername, vmwarePassword, s3URL, s3SecretKey, s3AccessKey, s3BucketName, s3Region string) Config {
-	return Config{
-		VMWareURL:      vmwareURL,
-		VMWareUsername: vmwareUsername,
-		VMWarePassword: vmwarePassword,
-		S3URL:          s3URL,
-		S3SecretKey:    s3SecretKey,
-		S3AccessKey:    s3AccessKey,
-		S3BucketName:   s3BucketName,
-		S3Region:       s3Region,
-	}
-}
-
 type VmwareS3BackupClient struct {
-	Configuration Config
+	Configuration config.Config
 	VmwareFinder  *find.Finder
 	S3Client      *s3.Client
 	VDDKConfig    *vmware.VddkConfig
@@ -60,7 +37,7 @@ type VMData struct {
 	// Disk   int
 }
 
-func NewClient(cfg Config) (*VmwareS3BackupClient, error) {
+func NewVmwareS3BackupClient(cfg config.Config) (*VmwareS3BackupClient, error) {
 	if cfg.VMWareURL == "" {
 		return nil, fmt.Errorf("vcenter URL must be provided")
 	}
@@ -163,7 +140,7 @@ func (c *VmwareS3BackupClient) InitNbdkit(ctx context.Context) error {
 
 func (c *VmwareS3BackupClient) Connect(ctx context.Context) error {
 	c.ConnectToVMware(ctx)
-	c.ConnectToS3(ctx)
+	// c.ConnectToS3(ctx) NOTE: THIS IS JUST FOR TESTING commented
 	c.InitNbdkit(ctx)
 	return nil
 }
