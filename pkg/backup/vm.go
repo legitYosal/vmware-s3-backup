@@ -9,6 +9,7 @@ import (
 	"syscall"
 
 	"github.com/legitYosal/vmware-s3-backup/pkg/nbdkit"
+	"github.com/vmware/govmomi/find"
 	"github.com/vmware/govmomi/object"
 	"github.com/vmware/govmomi/vim25/mo"
 	"github.com/vmware/govmomi/vim25/types"
@@ -108,6 +109,12 @@ func (c *DetailedVirtualMachine) ConsolidateDanglingSnapshot(ctx context.Context
 func (c *DetailedVirtualMachine) FindDanglingSnapshot(ctx context.Context) (*types.ManagedObjectReference, error) {
 	snapshotRef, err := c.Ref.FindSnapshot(ctx, TempBackupSnapshotName)
 	if err != nil {
+		if _, ok := err.(*find.NotFoundError); ok {
+			return nil, nil
+		}
+		if err.Error() == "no snapshots for this VM" {
+			return nil, nil
+		}
 		return nil, err
 	}
 	if snapshotRef != nil {

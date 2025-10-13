@@ -47,28 +47,28 @@ It will perform a full backup and store it in the configured S3 bucket.`,
 				return err
 			}
 		}
-		// snapshotRef, err := vm.FindDanglingSnapshot(cmd.Context())
-		// if err != nil {
-		// 	slog.Error("Error finding dangling snapshot", "error", err)
-		// 	return err
-		// }
-		// consolidate, err := cmd.Flags().GetBool("consolidate")
-		// if err != nil {
-		// 	slog.Error("Error getting consolidate flag", "error", err)
-		// 	return err
-		// }
-		// if snapshotRef != nil {
-		// 	if consolidate {
-		// 		err = vm.ConsolidateDanglingSnapshot(cmd.Context(), snapshotRef)
-		// 		if err != nil {
-		// 			slog.Error("Error consolidating snapshot", "error", err)
-		// 			return err
-		// 		}
-		// 	} else {
-		// 		slog.Error("Dangling snapshot found, please remove it")
-		// 		return err
-		// 	}
-		// }
+		snapshotRef, err := vm.FindDanglingSnapshot(cmd.Context())
+		if err != nil {
+			slog.Error("Error finding dangling snapshot", "error", err)
+			return err
+		}
+		consolidate, err := cmd.Flags().GetBool("consolidate")
+		if err != nil {
+			slog.Error("Error getting consolidate flag", "error", err)
+			return err
+		}
+		if snapshotRef != nil {
+			if consolidate {
+				err = vm.ConsolidateDanglingSnapshot(cmd.Context(), snapshotRef)
+				if err != nil {
+					slog.Error("Error consolidating snapshot", "error", err)
+					return err
+				}
+			} else {
+				slog.Error("Dangling snapshot found, please remove it")
+				return err
+			}
+		}
 
 		slog.Info("here next we must open the sockets for nbdkit")
 		return nil
