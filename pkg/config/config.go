@@ -7,19 +7,20 @@ import (
 )
 
 type Config struct {
-	VMWareURL      string
-	VMWareUsername string
-	VMWarePassword string
-	S3URL          string
-	S3SecretKey    string
-	S3AccessKey    string
-	S3BucketName   string
-	S3Region       string
+	VMWareHOST     string `mapstructure:"VMWARE_HOST"`
+	VMWareUsername string `mapstructure:"VMWARE_USERNAME"`
+	VMWarePassword string `mapstructure:"VMWARE_PASSWORD"`
+	S3URL          string `mapstructure:"S3_URL"`
+	S3SecretKey    string `mapstructure:"S3_SECRET_KEY"`
+	S3AccessKey    string `mapstructure:"S3_ACCESS_KEY"`
+	S3BucketName   string `mapstructure:"S3_BUCKET_NAME"`
+	S3Region       string `mapstructure:"S3_REGION"`
+	Debug          bool   `mapstructure:"DEBUG"`
 }
 
-func NewClientConfig(vmwareURL, vmwareUsername, vmwarePassword, s3URL, s3SecretKey, s3AccessKey, s3BucketName, s3Region string) Config {
+func NewClientConfig(vmwareHOST, vmwareUsername, vmwarePassword, s3URL, s3SecretKey, s3AccessKey, s3BucketName, s3Region string, debug bool) Config {
 	return Config{
-		VMWareURL:      vmwareURL,
+		VMWareHOST:     vmwareHOST,
 		VMWareUsername: vmwareUsername,
 		VMWarePassword: vmwarePassword,
 		S3URL:          s3URL,
@@ -27,11 +28,12 @@ func NewClientConfig(vmwareURL, vmwareUsername, vmwarePassword, s3URL, s3SecretK
 		S3AccessKey:    s3AccessKey,
 		S3BucketName:   s3BucketName,
 		S3Region:       s3Region,
+		Debug:          debug,
 	}
 }
 
 func ValidateConfig(cfg Config) error {
-	if cfg.VMWareURL == "" {
+	if cfg.VMWareHOST == "" {
 		return fmt.Errorf("vcenter URL must be provided")
 	}
 	if cfg.S3BucketName == "" {
@@ -60,7 +62,7 @@ func ValidateConfig(cfg Config) error {
 
 func LoadClientConfigFromENV(ctx context.Context) (Config, error) {
 	cfg := NewClientConfig(
-		os.Getenv("VMWARE_URL"),
+		os.Getenv("VMWARE_HOST"),
 		os.Getenv("VMWARE_USERNAME"),
 		os.Getenv("VMWARE_PASSWORD"),
 		os.Getenv("S3_URL"),
@@ -68,6 +70,7 @@ func LoadClientConfigFromENV(ctx context.Context) (Config, error) {
 		os.Getenv("S3_ACCESS_KEY"),
 		os.Getenv("S3_BUCKET_NAME"),
 		os.Getenv("S3_REGION"),
+		os.Getenv("DEBUG") == "true",
 	)
 	if err := ValidateConfig(cfg); err != nil {
 		return Config{}, err
