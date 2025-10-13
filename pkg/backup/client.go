@@ -183,7 +183,12 @@ func (c *VmwareS3BackupClient) FindVMByPath(ctx context.Context, vmPath string) 
 		return nil, err
 	}
 	var o mo.VirtualMachine
-	err = vm.Properties(ctx, vm.Reference(), []string{"config"}, &o)
+	// Fetch all necessary properties including name and changeTrackingEnabled
+	err = vm.Properties(ctx, vm.Reference(), []string{
+		"name",
+		"config",
+		"config.changeTrackingEnabled",
+	}, &o)
 	if err != nil {
 		return nil, err
 	}
@@ -278,6 +283,7 @@ func (c *VmwareS3BackupClient) DetailedListVMs(ctx context.Context) ([]VMData, e
 		"runtime.powerState",
 		"config.hardware",
 		"config.changeTrackingEnabled",
+		"config.extraConfig",
 		"summary.config",
 		"snapshot",
 	}
@@ -319,8 +325,28 @@ func (c *VmwareS3BackupClient) DetailedListVMs(ctx context.Context) ([]VMData, e
 
 		// Get CBT (Changed Block Tracking) enabled status
 		cbtEnabled := false
-		if vm.Config != nil && vm.Config.ChangeTrackingEnabled != nil {
-			cbtEnabled = *vm.Config.ChangeTrackingEnabled
+		if vm.Config.ChangeTrackingEnabled != nil && *vm.Config.ChangeTrackingEnabled {
+			cbtEnabled = true
+		}
+
+		// Also check the extraConfig for ctkEnabled setting
+		if vm.Config.ExtraConfig != nil {
+			for _, option := range vm.Config.ExtraConfig {
+				if optionValue, ok := option.(*types.OptionValue); ok {
+					if optionValue.Key == "ctkEnabled" {
+						// Check if value is "true" or "TRUE" (case insensitive)
+						if val, ok := optionValue.Value.(string); ok {
+							if val == "true" || val == "TRUE" || val == "True" {
+								cbtEnabled = true
+							}
+						}
+						// Also handle boolean values
+						if val, ok := optionValue.Value.(bool); ok {
+							cbtEnabled = val
+						}
+					}
+				}
+			}
 		}
 
 		// Count snapshots
