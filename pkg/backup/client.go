@@ -141,7 +141,7 @@ func (c *VmwareS3BackupClient) InitNbdkit(ctx context.Context) error {
 		Debug:       true,
 		Endpoint:    endpointURL,
 		Thumbprint:  thumbprint,
-		Compression: nbdkit.NoCompression, // NOTE migratekit supports more
+		Compression: nbdkit.SkipzCompression, // NOTE migratekit supports more
 	}
 	return nil
 }
