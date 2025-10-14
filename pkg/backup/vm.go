@@ -154,8 +154,10 @@ func (c *DetailedVirtualMachine) StartNBDSockets(ctx context.Context, vmKey stri
 		case *types.VirtualDisk:
 			backing := disk.Backing.(types.BaseVirtualDeviceFileBackingInfo)
 			info := backing.GetVirtualDeviceFileBackingInfo()
-			slog.Debug("Starting NBD socket for disk", "diskName", disk.DeviceInfo.GetDescription().Label)
 			password := c.S3BackupClient.Configuration.VMWarePassword
+
+			slog.Debug("Starting NBD socket for disk", "diskName", disk.DeviceInfo.GetDescription().Label)
+
 			socket, err := nbdkit.NewNBDKitSocketConfig(
 				c.S3BackupClient.VDDKConfig.Endpoint.Host,
 				c.S3BackupClient.VDDKConfig.Endpoint.User.Username(),
