@@ -139,6 +139,7 @@ func (c *DetailedVirtualMachine) CreateBackupSnapshot(ctx context.Context) error
 		Ref:        &ref,
 		Properties: &properties,
 	}
+	slog.Debug("Backup snapshot created successfully", "vmName", c.Properties.Name)
 	return nil
 }
 
