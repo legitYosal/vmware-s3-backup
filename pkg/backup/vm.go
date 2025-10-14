@@ -154,9 +154,6 @@ func (c *DetailedVirtualMachine) StartNBDSockets(ctx context.Context, vmKey stri
 		case *types.VirtualDisk:
 			backing := disk.Backing.(types.BaseVirtualDeviceFileBackingInfo)
 			info := backing.GetVirtualDeviceFileBackingInfo()
-			slog.Debug("CONFIGURATION DELETE LATER", "configuration", c)
-			slog.Debug("CONFIGURATION DELETE LATER", "configuration", c.S3BackupClient)
-			slog.Debug("CONFIGURATION DELETE LATER", "configuration", c.S3BackupClient.Configuration)
 			password := c.S3BackupClient.Configuration.VMWarePassword
 
 			slog.Debug("Starting NBD socket for disk", "diskName", disk.DeviceInfo.GetDescription().Label)
@@ -177,6 +174,7 @@ func (c *DetailedVirtualMachine) StartNBDSockets(ctx context.Context, vmKey stri
 			if err := socket.Start(); err != nil {
 				return err
 			}
+			slog.Debug("NBD socket started successfully", "diskName", disk.DeviceInfo.GetDescription().Label)
 
 			diskTarget, err := NewDiskTarget(disk, socket, c, vmKey)
 			if err != nil {
