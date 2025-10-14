@@ -117,6 +117,7 @@ func (c *DetailedVirtualMachine) FindDanglingSnapshot(ctx context.Context) (*typ
 }
 
 func (c *DetailedVirtualMachine) CreateBackupSnapshot(ctx context.Context) error {
+	slog.Debug("Creating backup snapshot", "vmName", c.Properties.Name)
 	task, err := c.Ref.CreateSnapshot(ctx, TempBackupSnapshotName, "Ephemeral snapshot for migration", false, false)
 	if err != nil {
 		return err
@@ -146,6 +147,7 @@ func (c *DetailedVirtualMachine) StartNBDSockets(ctx context.Context, vmKey stri
 	if err != nil {
 		return err
 	}
+	slog.Debug("Starting NBD sockets", "vmName", c.Properties.Name)
 	for _, device := range c.SnapshotRef.Properties.Config.Hardware.Device {
 		switch disk := device.(type) {
 		case *types.VirtualDisk:
@@ -213,6 +215,7 @@ func (c *DetailedVirtualMachine) StartCycle(ctx context.Context, vmKey string) e
 		2. if full copy we are going to from 0 to 100 copy all data to s3
 		3. if incremental copy we are going to copy only the changed data to s3
 	*/
+	slog.Debug("Starting cycle", "vmName", c.Properties.Name)
 	err := c.StartNBDSockets(ctx, vmKey)
 	if err != nil {
 		return err

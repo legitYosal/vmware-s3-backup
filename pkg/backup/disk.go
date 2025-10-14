@@ -168,21 +168,22 @@ func (d *DiskTarget) StartSync(ctx context.Context) error {
 	// Boot workers (4 workers by default)
 	mpu.BootWorkers(ctx, 4)
 
-	if needFullCopy {
+	if true {
 		err := d.FullCopy(ctx, mpu)
 		if err != nil {
 			return err
 		}
-	} else {
-		oldChangeID, err := diskMetaData.GetChangeID()
-		if err != nil {
-			return err
-		}
-		err = d.IncrementalCopy(ctx, mpu, oldChangeID)
-		if err != nil {
-			return err
-		}
 	}
+	// else {
+	// 	oldChangeID, err := diskMetaData.GetChangeID()
+	// 	if err != nil {
+	// 		return err
+	// 	}
+	// 	err = d.IncrementalCopy(ctx, mpu, oldChangeID)
+	// 	if err != nil {
+	// 		return err
+	// 	}
+	// }
 
 	// Wait for all workers to finish
 	if err := mpu.Wait(); err != nil {
