@@ -173,8 +173,9 @@ func (c *VmwareS3BackupClient) FindVMByPath(ctx context.Context, vmPath string) 
 		return nil, err
 	}
 	return &DetailedVirtualMachine{
-		Ref:        vm,
-		Properties: &o,
+		Ref:            vm,
+		Properties:     &o,
+		S3BackupClient: c,
 	}, nil
 }
 
