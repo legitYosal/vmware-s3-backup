@@ -154,6 +154,8 @@ func (c *DetailedVirtualMachine) StartNBDSockets(ctx context.Context, vmKey stri
 		case *types.VirtualDisk:
 			backing := disk.Backing.(types.BaseVirtualDeviceFileBackingInfo)
 			info := backing.GetVirtualDeviceFileBackingInfo()
+			slog.Debug("CONFIGURATION DELETE LATER", "configuration", c)
+			slog.Debug("CONFIGURATION DELETE LATER", "configuration", c.S3BackupClient)
 			slog.Debug("CONFIGURATION DELETE LATER", "configuration", c.S3BackupClient.Configuration)
 			password := c.S3BackupClient.Configuration.VMWarePassword
 
