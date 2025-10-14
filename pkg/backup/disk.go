@@ -138,6 +138,7 @@ func (d *DiskTarget) StartSync(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
+	slog.Debug("Need full copy", "needFullCopy", needFullCopy)
 
 	c := make(chan os.Signal, 1)
 	signal.Notify(c, os.Interrupt, syscall.SIGTERM)

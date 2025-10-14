@@ -80,6 +80,7 @@ func NewVmwareS3BackupClient(cfg *config.Config) (*VmwareS3BackupClient, error) 
 }
 
 func (c *VmwareS3BackupClient) ConnectToVMware(ctx context.Context) error {
+	slog.Debug("Connecting to VMware", "host", c.Configuration.VMWareHOST)
 	endpointURL := &url.URL{
 		Scheme: "https",
 		Host:   c.Configuration.VMWareHOST,
@@ -114,6 +115,7 @@ func (c *VmwareS3BackupClient) ConnectToVMware(ctx context.Context) error {
 }
 
 func (c *VmwareS3BackupClient) ConnectToS3(ctx context.Context) error {
+	slog.Debug("Connecting to S3", "url", c.Configuration.S3URL)
 	s3DB, err := vms3.CreateS3Client(ctx, c.Configuration.S3URL, c.Configuration.S3AccessKey, c.Configuration.S3SecretKey, c.Configuration.S3Region)
 	if err != nil {
 		return fmt.Errorf("failed to create S3 client: %w", err)
@@ -123,6 +125,7 @@ func (c *VmwareS3BackupClient) ConnectToS3(ctx context.Context) error {
 }
 
 func (c *VmwareS3BackupClient) InitNbdkit(ctx context.Context) error {
+	slog.Debug("Initializing NBDKit", "host", c.Configuration.VMWareHOST)
 	endpointURL := &url.URL{
 		Scheme: "https",
 		Host:   c.Configuration.VMWareHOST,
@@ -144,7 +147,7 @@ func (c *VmwareS3BackupClient) InitNbdkit(ctx context.Context) error {
 
 func (c *VmwareS3BackupClient) Connect(ctx context.Context) error {
 	c.ConnectToVMware(ctx)
-	// c.ConnectToS3(ctx) NOTE: THIS IS JUST FOR TESTING commented
+	c.ConnectToS3(ctx)
 	c.InitNbdkit(ctx)
 	return nil
 }
