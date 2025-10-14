@@ -15,8 +15,6 @@ import (
 	"github.com/vmware/govmomi/vim25/types"
 )
 
-const MaxChunkSize = 64 * 1024 * 1024 // 64 MB
-
 const TempBackupSnapshotName = "vmware-backup-snapshot"
 
 type DetailedSnapshot struct {
@@ -26,14 +24,9 @@ type DetailedSnapshot struct {
 type DetailedVirtualMachine struct {
 	Ref            *object.VirtualMachine
 	Properties     *mo.VirtualMachine
-	Sockets        []*DiskSocket
+	Sockets        []*DiskTarget
 	SnapshotRef    *DetailedSnapshot
 	S3BackupClient *VmwareS3BackupClient
-}
-
-type DiskSocket struct {
-	Disk      *types.VirtualDisk
-	SocketRef *nbdkit.NbdkitSocket
 }
 
 // RefreshProperties reloads the VM properties from vSphere
@@ -148,7 +141,7 @@ func (c *DetailedVirtualMachine) CreateBackupSnapshot(ctx context.Context) error
 	return nil
 }
 
-func (c *DetailedVirtualMachine) StartNBDSockets(ctx context.Context) error {
+func (c *DetailedVirtualMachine) StartNBDSockets(ctx context.Context, vmKey string) error {
 	err := c.CreateBackupSnapshot(ctx)
 	if err != nil {
 		return err
@@ -177,10 +170,11 @@ func (c *DetailedVirtualMachine) StartNBDSockets(ctx context.Context) error {
 				return err
 			}
 
-			c.Sockets = append(c.Sockets, &DiskSocket{
-				SocketRef: socket,
-				Disk:      disk,
-			})
+			diskTarget, err := NewDiskTarget(disk, socket, c, vmKey)
+			if err != nil {
+				return err
+			}
+			c.Sockets = append(c.Sockets, diskTarget)
 		}
 	}
 
@@ -210,21 +204,32 @@ func (c *DetailedVirtualMachine) Stop(ctx context.Context) error {
 	return nil
 }
 
-func (c *DetailedVirtualMachine) StartCycle(ctx context.Context) error {
-	ok, err := c.CheckCBTEnabled()
+func (c *DetailedVirtualMachine) StartCycle(ctx context.Context, vmKey string) error {
+	/*
+		Now every validation is passed,
+		also nbdkit sockets are started,
+		now we are going to first of all:
+		1. check if we need a fully copy or not
+		2. if full copy we are going to from 0 to 100 copy all data to s3
+		3. if incremental copy we are going to copy only the changed data to s3
+	*/
+	err := c.StartNBDSockets(ctx, vmKey)
 	if err != nil {
 		return err
 	}
-	if !ok {
-		return fmt.Errorf("CBT is not enabled for this VM")
-	}
-	err = c.FindAndConsolidateDanglingSnapshot(ctx)
-	if err != nil {
-		return err
-	}
-	err = c.StartNBDSockets(ctx)
-	if err != nil {
-		return err
+	defer func() {
+		err := c.Stop(ctx)
+		if err != nil {
+			slog.Error("Failed to stop nbdkit servers", "error", err)
+		}
+	}()
+	for index, socket := range c.Sockets {
+		err := socket.StartSync(ctx)
+		if err != nil {
+			slog.Error("Failed to start sync for disk", "index", index, "error", err)
+		} else {
+			slog.Debug("Sync finished for disk", "index", index)
+		}
 	}
 	return nil
 }
@@ -414,4 +419,12 @@ func (c *DetailedVirtualMachine) StunUnstun(ctx context.Context) error {
 
 	slog.Debug("Stun/unstun cycle completed successfully - CBT is now active", "vmName", c.Properties.Name)
 	return nil
+}
+
+func (c *DetailedVirtualMachine) GetName() string {
+	return c.Properties.Name
+}
+
+func (c *DetailedVirtualMachine) GetID() string {
+	return c.Properties.Config.Uuid
 }

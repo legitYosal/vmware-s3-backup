@@ -9,11 +9,9 @@ import (
 	"strings"
 	"time"
 
-	S3Config "github.com/aws/aws-sdk-go-v2/config"
-	"github.com/aws/aws-sdk-go-v2/credentials"
-	"github.com/aws/aws-sdk-go-v2/service/s3"
 	"github.com/legitYosal/vmware-s3-backup/pkg/config"
 	"github.com/legitYosal/vmware-s3-backup/pkg/nbdkit"
+	"github.com/legitYosal/vmware-s3-backup/pkg/vms3"
 	"github.com/legitYosal/vmware-s3-backup/pkg/vmware"
 	"github.com/vmware/govmomi/find"
 	"github.com/vmware/govmomi/property"
@@ -29,7 +27,7 @@ type VmwareS3BackupClient struct {
 	Configuration *config.Config
 	VMWareFinder  *find.Finder
 	VMWareClient  *vim25.Client
-	S3Client      *s3.Client
+	S3DB          *vms3.S3DB
 	VDDKConfig    *vmware.VddkConfig
 }
 
@@ -116,18 +114,11 @@ func (c *VmwareS3BackupClient) ConnectToVMware(ctx context.Context) error {
 }
 
 func (c *VmwareS3BackupClient) ConnectToS3(ctx context.Context) error {
-	cfg, err := S3Config.LoadDefaultConfig(ctx,
-		S3Config.WithCredentialsProvider(credentials.NewStaticCredentialsProvider(c.Configuration.S3AccessKey, c.Configuration.S3SecretKey, "")),
-		S3Config.WithRegion(c.Configuration.S3Region),
-	)
+	s3DB, err := vms3.CreateS3Client(ctx, c.Configuration.S3URL, c.Configuration.S3AccessKey, c.Configuration.S3SecretKey, c.Configuration.S3Region)
 	if err != nil {
-		return fmt.Errorf("failed to load AWS config: %w", err)
+		return fmt.Errorf("failed to create S3 client: %w", err)
 	}
-	s3Client := s3.NewFromConfig(cfg, func(o *s3.Options) {
-		o.BaseEndpoint = &c.Configuration.S3URL
-		o.UsePathStyle = true
-	})
-	c.S3Client = s3Client
+	c.S3DB = s3DB
 	return nil
 }
 
@@ -155,25 +146,6 @@ func (c *VmwareS3BackupClient) Connect(ctx context.Context) error {
 	c.ConnectToVMware(ctx)
 	// c.ConnectToS3(ctx) NOTE: THIS IS JUST FOR TESTING commented
 	c.InitNbdkit(ctx)
-	return nil
-}
-
-// FullCopy performs a full backup of a VM to the configured S3 bucket.
-func (c *VmwareS3BackupClient) FullCopy(ctx context.Context, vmName string) error {
-	fmt.Printf("--> (Library) Starting FULL backup for VM '%s' to bucket '%s'\n", vmName, c.Configuration.S3BucketName)
-	//
-	// THIS IS WHERE YOUR FULL COPY LOGIC FROM OUR PREVIOUS DISCUSSION GOES
-	//
-	fmt.Printf("--> (Library) Full backup for VM '%s' completed.\n", vmName)
-	return nil
-}
-
-// IncrementalCopy performs an incremental backup.
-func (c *VmwareS3BackupClient) IncrementalCopy(ctx context.Context, vmName string) error {
-	fmt.Printf("--> (Library) Starting INCREMENTAL backup for VM '%s'\n", vmName)
-	//
-	// THIS IS WHERE YOUR INCREMENTAL LOGIC GOES
-	//
 	return nil
 }
 

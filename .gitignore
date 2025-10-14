@@ -30,3 +30,6 @@ go.work.sum
 # Editor/IDE
 # .idea/
 # .vscode/
+
+test_file_105MB.bin
+random_test_file_105MB.bin

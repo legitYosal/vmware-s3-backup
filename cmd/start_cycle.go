@@ -70,7 +70,12 @@ It will perform a full backup and store it in the configured S3 bucket.`,
 			}
 		}
 
-		slog.Info("here next we must open the sockets for nbdkit")
+		vm.StartNBDSockets(cmd.Context(), vm.GetName())
+		if err != nil {
+			slog.Error("Error starting NBD sockets", "error", err)
+			return err
+		}
+		slog.Info("NBD sockets started successfully")
 		return nil
 	},
 }
