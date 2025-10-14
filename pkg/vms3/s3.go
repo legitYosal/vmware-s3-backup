@@ -3,6 +3,7 @@ package vms3
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -128,6 +129,11 @@ func (s *S3DB) GetMetadataInObject(ctx context.Context, bucketName string, objec
 
 	headObjectOutput, err := s.S3Client.HeadObject(ctx, headObjectInput)
 	if err != nil {
+		var nsk *types.NoSuchKey
+		if errors.As(err, &nsk) {
+			slog.Debug("No such key found", "bucketName", bucketName, "objectKey", objectKey)
+			return "", nil
+		}
 		slog.Error("Error getting metadata from S3 object", "bucketName", bucketName, "objectKey", objectKey, "error", err)
 		return "", fmt.Errorf("failed to get metadata for object %s in bucket %s: %w", objectKey, bucketName, err)
 	}
