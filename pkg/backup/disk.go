@@ -168,11 +168,13 @@ func (d *DiskTarget) StartSync(ctx context.Context) error {
 	// Boot workers (4 workers by default)
 	mpu.BootWorkers(ctx, 4)
 
-	if true {
+	if needFullCopy {
 		err := d.FullCopy(ctx, mpu)
 		if err != nil {
 			return err
 		}
+	} else {
+		slog.Info("it needs incremental copy *******************")
 	}
 	// else {
 	// 	oldChangeID, err := diskMetaData.GetChangeID()
