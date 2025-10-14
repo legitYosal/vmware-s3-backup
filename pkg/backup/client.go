@@ -48,6 +48,7 @@ type VMData struct {
 }
 
 func NewVmwareS3BackupClient(cfg *config.Config) (*VmwareS3BackupClient, error) {
+	slog.Debug("Creating VMware S3 backup client", "config", cfg)
 	if cfg.VMWareHOST == "" {
 		return nil, fmt.Errorf("vcenter URL must be provided")
 	}
@@ -146,9 +147,13 @@ func (c *VmwareS3BackupClient) InitNbdkit(ctx context.Context) error {
 }
 
 func (c *VmwareS3BackupClient) Connect(ctx context.Context) error {
+	slog.Debug("Connecting to VMware and S3")
 	c.ConnectToVMware(ctx)
+	slog.Debug("Connecting to S3")
 	c.ConnectToS3(ctx)
+	slog.Debug("Initializing NBDKit")
 	c.InitNbdkit(ctx)
+	slog.Debug("Client created successfully")
 	return nil
 }
 
