@@ -17,7 +17,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/s3/types"
 )
 
-const MaxConcurrentUploads = 16
+const MaxConcurrentUploads = 6
 
 type UploadPart struct {
 	PartNumber int32
