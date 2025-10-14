@@ -18,6 +18,7 @@ import (
 )
 
 const MaxConcurrentUploads = 6
+const MaxJobChanBuffer = 2
 
 type UploadPart struct {
 	PartNumber int32
@@ -240,11 +241,11 @@ func (p *MultiPartUpload) CopyPart(ctx context.Context, partNumber int32, byteRa
 // maxConcurrentUploads: maximum number of concurrent S3 uploads (default: MaxConcurrentUploads)
 func (p *MultiPartUpload) BootWorkers(ctx context.Context, numWorkers int) {
 	p.ctx = ctx
-	p.jobChan = make(chan PartUploadJob, 10) // Buffered channel with capacity 10
+	p.jobChan = make(chan PartUploadJob, MaxJobChanBuffer) // Buffered channel with capacity 10
 	p.errChan = make(chan error, 1)
 	p.semaphore = make(chan struct{}, MaxConcurrentUploads) // Limit to MaxConcurrentUploads concurrent uploads
 
-	slog.Debug("Starting worker pool", "numWorkers", numWorkers, "maxConcurrentUploads", MaxConcurrentUploads, "objectKey", p.ObjectKey)
+	slog.Debug("Starting worker pool", "numWorkers", numWorkers, "maxConcurrentUploads", MaxConcurrentUploads, "jobChanBuffer", MaxJobChanBuffer, "objectKey", p.ObjectKey)
 
 	for i := 0; i < numWorkers; i++ {
 		p.wg.Add(1)
