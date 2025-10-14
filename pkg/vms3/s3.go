@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"net/http"
 	"sync"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
@@ -133,6 +134,13 @@ func (s *S3DB) GetMetadataInObject(ctx context.Context, bucketName string, objec
 		if errors.As(err, &nsk) {
 			slog.Debug("No such key found", "bucketName", bucketName, "objectKey", objectKey)
 			return "", nil
+		}
+		var respErr interface{ HTTPStatusCode() int } // Interface to access the status code
+		if errors.As(err, &respErr) {
+			if respErr.HTTPStatusCode() == http.StatusNotFound { // http.StatusNotFound is 404
+				slog.Debug("S3 object not found via HTTP 404 check", "bucketName", bucketName, "objectKey", objectKey)
+				return "", nil
+			}
 		}
 		slog.Error("Error getting metadata from S3 object", "bucketName", bucketName, "objectKey", objectKey, "error", err)
 		return "", fmt.Errorf("failed to get metadata for object %s in bucket %s: %w", objectKey, bucketName, err)
