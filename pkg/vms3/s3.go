@@ -295,6 +295,12 @@ func (p *MultiPartUpload) BootWorkers(ctx context.Context, numWorkers int) {
 func (p *MultiPartUpload) SendPart(partNumber int32, data []byte, byteRange string, partUploadType PartUploadType) error {
 	// Check for errors before sending
 	slog.Info("*********** SENDING PART", "TYPE", partUploadType, "Number", partNumber)
+	if partUploadType == PartUploadTypeCopy {
+		slog.Info("             copying part", "ByteRange", byteRange)
+	}
+	if partUploadType == PartUploadTypeUpload {
+		slog.Info("             uploading part", "DataLength", len(data))
+	}
 	// select {
 	// case err := <-p.errChan:
 	// 	return err
