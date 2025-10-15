@@ -189,7 +189,7 @@ func (d *DiskTarget) StartSync(ctx context.Context) error {
 		if err != nil {
 			return err
 		}
-		err = d.IncrementalCopyDetection(ctx, oldChangeID)
+		err = d.IncrementalCopyDetection(ctx, mpu, oldChangeID)
 		if err != nil {
 			return err
 		}
@@ -434,7 +434,7 @@ func (d *DiskTarget) CleanUploadSectors(ctx context.Context, changedSectors []*D
 	return finalizedSectors, nil
 }
 
-func (d *DiskTarget) IncrementalCopyDetection(ctx context.Context, oldChangeID *vmware.ChangeID) error {
+func (d *DiskTarget) IncrementalCopyDetection(ctx context.Context, mpu *vms3.MultiPartUpload, oldChangeID *vmware.ChangeID) error {
 	slog.Info("Starting incremental copy detection", "diskKey", d.GetDiskKey(), "oldChangeID", oldChangeID.Value)
 	startOffset := int64(0)
 	partNumber := int32(0)
@@ -484,11 +484,49 @@ func (d *DiskTarget) IncrementalCopyDetection(ctx context.Context, oldChangeID *
 		}
 	}
 
-	changedSectors, err := d.CleanUploadSectors(ctx, changedSectors)
+	refinedSectors, err := d.CleanUploadSectors(ctx, changedSectors)
 	if err != nil {
 		return err
 	}
+	handle, err := libnbd.Create()
+	if err != nil {
+		return err
+	}
+	defer handle.Close()
 
+	err = handle.ConnectUri(d.SocketRef.LibNBDExportName())
+	if err != nil {
+		return err
+	}
+	for _, sector := range refinedSectors {
+		if sector.Type == vms3.PartUploadTypeCopy {
+			buf := make([]byte, sector.Length)
+			err = handle.Pread(buf, uint64(sector.StartOffset), nil)
+			if err != nil {
+				return fmt.Errorf("failed to read from NBD at offset %d, chunkSize %d: %w", sector.StartOffset, sector.Length, err)
+			}
+			if err := mpu.SendPart(
+				sector.PartNumber,
+				buf,
+				"",
+				vms3.PartUploadTypeUpload,
+			); err != nil {
+				return fmt.Errorf("failed to send upload part %d to worker: %w", sector.PartNumber, err)
+			}
+			slog.Debug("Sent changed part %d to worker", "partNumber", sector.PartNumber)
+		} else if sector.Type == vms3.PartUploadTypeUpload {
+			if err := mpu.SendPart(
+				sector.PartNumber,
+				nil,
+				fmt.Sprintf("bytes:%d-%d", sector.StartOffset, sector.StartOffset+sector.Length),
+				vms3.PartUploadTypeCopy,
+			); err != nil {
+				return fmt.Errorf("failed to send copy part %d to worker: %w", sector.PartNumber, err)
+			}
+		} else {
+			return fmt.Errorf("unknown sector type when executing incremental copy detection")
+		}
+	}
 	return nil
 }
 
