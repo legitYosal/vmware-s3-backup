@@ -301,18 +301,18 @@ func (p *MultiPartUpload) SendPart(partNumber int32, data []byte, byteRange stri
 	if partUploadType == PartUploadTypeUpload {
 		slog.Debug("             uploading part", "DataLength", len(data))
 	}
-	// select {
-	// case err := <-p.errChan:
-	// 	return err
-	// default:
-	// }
+	select {
+	case err := <-p.errChan:
+		return err
+	default:
+	}
 
-	// p.jobChan <- PartUploadJob{
-	// 	PartNumber: partNumber,
-	// 	Data:       data,
-	// 	ByteRange:  byteRange,
-	// 	Type:       partUploadType,
-	// }
+	p.jobChan <- PartUploadJob{
+		PartNumber: partNumber,
+		Data:       data,
+		ByteRange:  byteRange,
+		Type:       partUploadType,
+	}
 	return nil
 }
 
