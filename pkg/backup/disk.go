@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"os"
 	"os/signal"
+	"sort"
 	"strconv"
 	"syscall"
 
@@ -36,6 +37,14 @@ type DiskMetadata struct {
 	ChangeID  string `json:"change_id"`
 	DiskKey   string `json:"disk_key"`
 	SizeBytes int64  `json:"size_bytes"`
+}
+
+// these can be of two types of multipart copy or upload
+type DiskSector struct {
+	StartOffset int64
+	Length      int64
+	PartNumber  int32
+	Type        vms3.PartUploadType
 }
 
 func NewDiskTarget(disk *types.VirtualDisk, socketRef *nbdkit.NbdkitSocket, vm *DetailedVirtualMachine, vmKey string) (*DiskTarget, error) {
@@ -179,7 +188,7 @@ func (d *DiskTarget) StartSync(ctx context.Context) error {
 		if err != nil {
 			return err
 		}
-		err = d.IncrementalCopy(ctx, mpu, oldChangeID)
+		err = d.IncrementalCopyDetection(ctx, oldChangeID)
 		if err != nil {
 			return err
 		}
@@ -240,6 +249,133 @@ func (d *DiskTarget) FullCopy(ctx context.Context, mpu *vms3.MultiPartUpload) er
 	}
 
 	slog.Info("Full copy to S3 completed", "diskKey", d.GetDiskKey(), "totalParts", partNumber-1)
+	return nil
+}
+
+func (d *DiskTarget) CleanUploadSectors(ctx context.Context, changedSectors []*DiskSector) ([]*DiskSector, error) {
+	/*
+		Let us talk about it,
+		if i have a chunk in the disk, which is bigger than 5MB, it is guaranteed it will not have any over read part ->
+			0 - 65MB is a changed sector -> this will be a 65MB chunk as part 1
+			0 - 129MB is 1. 0 - 64MB and 2. 64MB - 129MB
+		there is no guarantee to have a small stand alone chunk well below 5MB -> for example 1KB or 1MB
+		this chunk is not guaranteed to have small sectors before and after it -> we do not know for example 0 - 1 C, 1 - 2 N, 2 - 3 C, 3 - 4 N
+		there is no guarantee to have a small stand alone not changed chunk in the middle of the disk sectors
+
+		This function will ignore the 5MB limit and find the not changed sectors and return a slice of combined sectors
+	*/
+	slog.Debug("Cleaning upload sectors", "changedSectors", changedSectors)
+	// first of make sure sectors are sorted by the start or part number
+	sort.Slice(changedSectors, func(i, j int) bool {
+		return changedSectors[i].PartNumber < changedSectors[j].PartNumber
+	})
+
+	var CombinedSectors []*DiskSector
+	fullDiskSize := d.Disk.CapacityInBytes
+	currentCursor := int64(0)
+	sectorEnd := int64(0)
+
+	for _, sector := range changedSectors {
+		sectorStart := sector.StartOffset
+		sectorEnd = sectorStart + sector.Length // -> start is 0, and length is 64 -> it will be from 0 to 63
+		// sectorEnd is not safe and it is the next sector start point, it is not exactly used in this sector
+		if sectorEnd >= fullDiskSize {
+			// this is the last sector, this is free to go in any size
+			sector.PartNumber = int32(len(CombinedSectors) + 1)
+			CombinedSectors = append(CombinedSectors, sector)
+			break
+		}
+		if sectorStart == currentCursor {
+			// this means that a sector is immediately started after another sector
+			// previous sector was from 0 - 64 MB and the new sector is from 64MB - 128MB
+			// we are going to append this and continue to the next sector
+			sector.PartNumber = int32(len(CombinedSectors) + 1)
+			CombinedSectors = append(CombinedSectors, sector)
+			currentCursor = sectorEnd
+		} else if sectorStart > currentCursor {
+			// we have found a new not changed area from currentCursor to the sectorStart - 1
+			CombinedSectors = append(CombinedSectors, &DiskSector{
+				StartOffset: currentCursor,
+				Length:      sectorStart - currentCursor,
+				PartNumber:  int32(len(CombinedSectors) + 1),
+				Type:        vms3.PartUploadTypeCopy,
+			})
+			sector.PartNumber = int32(len(CombinedSectors) + 1)
+			CombinedSectors = append(CombinedSectors, sector)
+			currentCursor = sectorEnd
+		} else if sectorStart < currentCursor {
+			// this may not happen
+			return nil, fmt.Errorf("sector start is less than current cursor")
+		}
+	}
+	if sectorEnd < fullDiskSize {
+		CombinedSectors = append(CombinedSectors, &DiskSector{
+			StartOffset: sectorEnd,
+			Length:      fullDiskSize - sectorEnd,
+			PartNumber:  int32(len(CombinedSectors) + 1),
+			Type:        vms3.PartUploadTypeUpload,
+		})
+	}
+	for _, sector := range CombinedSectors {
+		slog.Debug("Combined sector", "Number", sector.PartNumber, "StartOffset", sector.StartOffset, "Length", sector.Length, "Type", sector.Type)
+	}
+	return CombinedSectors, nil
+}
+
+func (d *DiskTarget) IncrementalCopyDetection(ctx context.Context, oldChangeID *vmware.ChangeID) error {
+	slog.Info("Starting incremental copy detection", "diskKey", d.GetDiskKey(), "oldChangeID", oldChangeID.Value)
+	startOffset := int64(0)
+	partNumber := int32(0)
+	var chunkSize int64
+	var changedSectors []*DiskSector
+	for {
+		req := types.QueryChangedDiskAreas{
+			This:        d.VM.Ref.Reference(),
+			Snapshot:    d.VM.SnapshotRef.Ref,
+			DeviceKey:   d.Disk.Key,
+			StartOffset: startOffset,
+			ChangeId:    oldChangeID.Value,
+		}
+		res, err := methods.QueryChangedDiskAreas(ctx, d.VM.Ref.Client(), &req)
+		if err != nil {
+			return err
+		}
+		diskChangeInfo := res.Returnval
+		for _, area := range diskChangeInfo.ChangedArea {
+			for offset := area.Start; offset < area.Start+area.Length; {
+				chunkSize = area.Length + area.Start - offset
+				if chunkSize > MaxChunkSize {
+					nextChunkSize := chunkSize - MaxChunkSize
+					if nextChunkSize >= S3MinChunkSizeLimit {
+						chunkSize = MaxChunkSize
+					} else {
+						// we do not change the chunk size -> it may be for example 68 MB
+						// NOTE This will cause a problem: WE DO NOT GUARANTEE EVERY CHUNK IS AT MAX 64MB, they can be bigger
+					}
+				}
+				changedSectors = append(changedSectors, &DiskSector{
+					StartOffset: offset,
+					Length:      chunkSize,
+					PartNumber:  partNumber,
+					Type:        vms3.PartUploadTypeUpload,
+				})
+				partNumber++
+				offset += chunkSize
+
+			}
+		}
+		startOffset = diskChangeInfo.StartOffset + diskChangeInfo.Length
+
+		if startOffset == d.Disk.CapacityInBytes {
+			break
+		}
+	}
+
+	changedSectors, err := d.CleanUploadSectors(ctx, changedSectors)
+	if err != nil {
+		return err
+	}
+
 	return nil
 }
 
@@ -403,6 +539,32 @@ func (d *DiskTarget) IncrementalCopy(ctx context.Context, mpu *vms3.MultiPartUpl
 				/*
 					what happens if the previous iteration have a over read?
 					this loop will break and we will move to the outer loop
+				*/
+				/*
+					new problem => under copy strategy
+					we have a over ready strategy as we said, when we have a chunk of data which is less than 5MB, then we are going to read 5MB anyway
+					now the problem is that, for the copy chunk this rule, remains =>> NEW Challenge => we will name this UNDER COPY
+					so for example if we have this layout =>
+						0 - 1024 not changed
+						1024 - 2048 changed
+						2048 - 2049 no changed
+						2049 - 3000 changed
+					then algorithm will try to copy the 0 - 1024 as part 1
+					and then uploads 1024 - 2048 as part 2
+					then it copies 2048 - 2049 as part 3 -> causing error
+					then it uploads 2049 - 3000 as part 4
+
+					so what are we going to do about the under copy part?
+					we are going to add it to the next part, so we are again doing an under copy,
+					what happens next? we get drowned in a nested scenario for example:
+					0 - 1024 not changed
+					1024_64K - 1024_128K changed
+					1024_256K - 1025 not changed
+					1026 - 1026_512K changed
+					1026_512K - 1027 not changed
+					1027 - 1028 changed
+					= > so at this point doing this will cause heavy loss and pain for us, so we are going to
+					separate concerns and do this in another thread or function
 				*/
 				if area.Start < startNotChangedOffset {
 					// this usually does not happen because we always keep the startNotChangedOffset equal or less than the offset(the old offset)
