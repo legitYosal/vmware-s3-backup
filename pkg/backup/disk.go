@@ -499,7 +499,7 @@ func (d *DiskTarget) IncrementalCopyDetection(ctx context.Context, mpu *vms3.Mul
 		return err
 	}
 	for _, sector := range refinedSectors {
-		if sector.Type == vms3.PartUploadTypeCopy {
+		if sector.Type == vms3.PartUploadTypeUpload {
 			buf := make([]byte, sector.Length)
 			err = handle.Pread(buf, uint64(sector.StartOffset), nil)
 			if err != nil {
@@ -514,7 +514,7 @@ func (d *DiskTarget) IncrementalCopyDetection(ctx context.Context, mpu *vms3.Mul
 				return fmt.Errorf("failed to send upload part %d to worker: %w", sector.PartNumber, err)
 			}
 			slog.Debug("Sent changed part %d to worker", "partNumber", sector.PartNumber)
-		} else if sector.Type == vms3.PartUploadTypeUpload {
+		} else if sector.Type == vms3.PartUploadTypeCopy {
 			if err := mpu.SendPart(
 				sector.PartNumber,
 				nil,
