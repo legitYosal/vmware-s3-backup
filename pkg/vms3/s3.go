@@ -197,6 +197,7 @@ func (p *MultiPartUpload) UploadPart(ctx context.Context, partNumber int32, data
 
 	result, err := p.db.S3Client.UploadPart(ctx, input)
 	if err != nil {
+		slog.Error("Error uploading part", "partNumber", partNumber, "objectKey", p.ObjectKey, "error", err)
 		return fmt.Errorf("failed to upload part %d: %w", partNumber, err)
 	}
 
@@ -229,6 +230,7 @@ func (p *MultiPartUpload) CopyPart(ctx context.Context, partNumber int32, byteRa
 
 	result, err := p.db.S3Client.UploadPartCopy(ctx, input)
 	if err != nil {
+		slog.Error("Error copying part", "partNumber", partNumber, "objectKey", p.ObjectKey, "byteRange", byteRange, "error", err)
 		return fmt.Errorf("failed to copy part %d from %s: %w", partNumber, p.ObjectKey, err)
 	}
 
