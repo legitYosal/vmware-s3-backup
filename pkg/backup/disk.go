@@ -407,23 +407,22 @@ func (d *DiskTarget) IncrementalCopy(ctx context.Context, mpu *vms3.MultiPartUpl
 				if area.Start < startNotChangedOffset {
 					// this usually does not happen because we always keep the startNotChangedOffset equal or less than the offset(the old offset)
 					// so when a new offset is less than startNotChangedOffset we definitely have a over read
-					if area.Start+area.Length < startNotChangedOffset {
+					if area.Start+area.Length <= startNotChangedOffset {
 						// this is the case where the previous iteration have a over read and the new area is a part of that 4MB+ sector
+						// Skip this area entirely as it's already been uploaded
+						slog.Debug("Skipping area already covered by over-read", "areaStart", area.Start, "areaEnd", area.Start+area.Length, "startNotChangedOffset", startNotChangedOffset)
 						break
 					} else {
 						// this is the case when we have a changed sector with a part of it in the over read and a part of it in the new area.
 						// for example we have over read from 2048 to 2053, and the next area is from 2052 to 3000
-						// so we will set the offset to 2053 + 1 instead of 2052, because we have copied the over read data already
-						// because the last time we set the startNotChangedOffset to offset(the last old offset) + chunkSize(the last selected chunk size which is 5MB)
-						// then we should set the start offset now to startNotChangedOffset + 1 because the bit at exactly startNotChangedOffset is copied already
-						// so by +1 we prevent off railing the whole file
-						offset = startNotChangedOffset + 1
+						// so we will set the offset to startNotChangedOffset instead of area.Start, because we have copied the over read data already
+						offset = startNotChangedOffset
 					}
 				}
-				endNotChangedOffset = offset
-				if startNotChangedOffset < endNotChangedOffset {
-					// we have a not changed area from startNotChangedOffset to endNotChangedOffset
-					mpu.SendPart(partNumber, nil, fmt.Sprintf("%d-%d", startNotChangedOffset, endNotChangedOffset), vms3.PartUploadTypeCopy)
+				endNotChangedOffset = offset - 1
+				if startNotChangedOffset <= endNotChangedOffset {
+					// we have a not changed area from startNotChangedOffset to endNotChangedOffset (inclusive)
+					mpu.SendPart(partNumber, nil, fmt.Sprintf("bytes=%d-%d", startNotChangedOffset, endNotChangedOffset), vms3.PartUploadTypeCopy)
 					partNumber++
 				}
 				chunkSize = area.Length + area.Start - offset
@@ -437,7 +436,7 @@ func (d *DiskTarget) IncrementalCopy(ctx context.Context, mpu *vms3.MultiPartUpl
 						so we can find out if we move about the exact size of chunkSize
 						ahead, what happens
 					*/
-					if offset+chunkSize >= d.Disk.CapacityInBytes {
+					if offset+chunkSize + 1 >= d.Disk.CapacityInBytes {
 						// this is the last chunk of the whole file, so we are free send it as it is
 						slog.Debug("This is the last chunk we are going to send to s3", "offset", offset, "chunkSize", chunkSize)
 					} else {
@@ -454,7 +453,7 @@ func (d *DiskTarget) IncrementalCopy(ctx context.Context, mpu *vms3.MultiPartUpl
 							We name this OVER READ Scenario
 						*/
 						slog.Warn("Changed chunk size is less than 5MB but not the last chunk, changing it to 5MB", "chunkSize", chunkSize)
-						chunkSize = 5 * 1024 * 1024
+						chunkSize = S3MinChunkSizeLimit
 						// will this break the logic? or will it break the nbdkit handle? we are not sure about it
 					}
 				}
@@ -470,7 +469,7 @@ func (d *DiskTarget) IncrementalCopy(ctx context.Context, mpu *vms3.MultiPartUpl
 				*/
 				err = handle.Pread(buf, uint64(offset), nil)
 				if err != nil {
-					return err
+					return fmt.Errorf("failed to read from NBD at offset %d, chunkSize %d: %w", offset, chunkSize, err)
 				}
 
 				// Send to worker pool for upload
