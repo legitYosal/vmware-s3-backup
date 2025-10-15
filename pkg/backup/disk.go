@@ -18,8 +18,8 @@ import (
 	"libguestfs.org/libnbd"
 )
 
-const MaxChunkSize = 64 * 1024 * 1024        // 64 MB
-const S3MinChunkSizeLimit = 10 * 1024 * 1024 // 5 MB
+const MaxChunkSize = 64 * 1024 * 1024       // 64 MB
+const S3MinChunkSizeLimit = 5 * 1024 * 1024 // 5 MB
 
 type DiskTarget struct {
 	Disk            *types.VirtualDisk
@@ -420,7 +420,7 @@ func (d *DiskTarget) IncrementalCopy(ctx context.Context, mpu *vms3.MultiPartUpl
 					}
 				}
 				endNotChangedOffset = offset - 1
-				if startNotChangedOffset <= endNotChangedOffset {
+				if startNotChangedOffset < endNotChangedOffset {
 					// we have a not changed area from startNotChangedOffset to endNotChangedOffset (inclusive)
 					mpu.SendPart(partNumber, nil, fmt.Sprintf("bytes=%d-%d", startNotChangedOffset, endNotChangedOffset), vms3.PartUploadTypeCopy)
 					partNumber++
