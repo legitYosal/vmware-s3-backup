@@ -25,9 +25,18 @@ type UploadPart struct {
 	Etag       string
 }
 
+type PartUploadType string
+
+const (
+	PartUploadTypeUpload PartUploadType = "upload"
+	PartUploadTypeCopy   PartUploadType = "copy"
+)
+
 type PartUploadJob struct {
 	PartNumber int32
 	Data       []byte
+	ByteRange  string
+	Type       PartUploadType
 }
 
 type MultiPartUpload struct {
@@ -255,9 +264,16 @@ func (p *MultiPartUpload) BootWorkers(ctx context.Context, numWorkers int) {
 				// Acquire semaphore
 				p.semaphore <- struct{}{}
 
-				var reader io.Reader = bytes.NewReader(job.Data)
-				uploadErr := p.UploadPart(p.ctx, job.PartNumber, &reader)
-
+				var uploadErr error
+				switch job.Type {
+				case PartUploadTypeUpload:
+					var reader io.Reader = bytes.NewReader(job.Data)
+					uploadErr = p.UploadPart(p.ctx, job.PartNumber, &reader)
+				case PartUploadTypeCopy:
+					uploadErr = p.CopyPart(p.ctx, job.PartNumber, job.ByteRange)
+				default:
+					uploadErr = fmt.Errorf("invalid part upload type: %s", job.Type)
+				}
 				// Release semaphore (even on error)
 				<-p.semaphore
 
@@ -276,18 +292,21 @@ func (p *MultiPartUpload) BootWorkers(ctx context.Context, numWorkers int) {
 }
 
 // SendPart sends a part upload job to the worker pool
-func (p *MultiPartUpload) SendPart(partNumber int32, data []byte) error {
+func (p *MultiPartUpload) SendPart(partNumber int32, data []byte, byteRange string, partUploadType PartUploadType) error {
 	// Check for errors before sending
-	select {
-	case err := <-p.errChan:
-		return err
-	default:
-	}
+	slog.Info("*********** SENDING PART", "TYPE", partUploadType, "Number", partNumber)
+	// select {
+	// case err := <-p.errChan:
+	// 	return err
+	// default:
+	// }
 
-	p.jobChan <- PartUploadJob{
-		PartNumber: partNumber,
-		Data:       data,
-	}
+	// p.jobChan <- PartUploadJob{
+	// 	PartNumber: partNumber,
+	// 	Data:       data,
+	// 	ByteRange:  byteRange,
+	// 	Type:       partUploadType,
+	// }
 	return nil
 }
 
@@ -308,6 +327,10 @@ func (p *MultiPartUpload) Wait() error {
 func (p *MultiPartUpload) CompleteMultipartUpload(ctx context.Context) error {
 	slog.Debug("Completing multipart upload", "objectKey", p.ObjectKey)
 
+	if len(p.Parts) == 0 {
+		slog.Debug("No parts to complete multipart upload", "objectKey", p.ObjectKey)
+		return nil
+	}
 	// 1. Convert the custom Part struct list into the S3 required types.Part list
 	s3Parts := make([]types.CompletedPart, len(p.Parts))
 	for i, p := range p.Parts {
