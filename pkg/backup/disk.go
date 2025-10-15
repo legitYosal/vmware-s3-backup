@@ -45,6 +45,7 @@ type DiskSector struct {
 	Length      int64
 	PartNumber  int32
 	Type        vms3.PartUploadType
+	Squashed    bool
 }
 
 func NewDiskTarget(disk *types.VirtualDisk, socketRef *nbdkit.NbdkitSocket, vm *DetailedVirtualMachine, vmKey string) (*DiskTarget, error) {
@@ -252,6 +253,100 @@ func (d *DiskTarget) FullCopy(ctx context.Context, mpu *vms3.MultiPartUpload) er
 	return nil
 }
 
+func (d *DiskTarget) SquashSectors(ctx context.Context, combinedSectors []*DiskSector) ([]*DiskSector, error) {
+	slog.Debug("Refining sectors", "combinedSectors", combinedSectors)
+	/*
+		Here we have some guarantees about the sectors:
+		1. all of the file from 0 to end, is in these sectors, as upload sections or copy sections
+		2. never a small changed section is next to another small section => 1-2 MB changed and then 2 - 3MB changed, this is only possible when 2 -3 is not changed
+		3. we are never iterating backward, we always will iterate forward => this is needed to reduce the complexity
+		4. We can append to a changed sector if it is even bigger than MaxChunkSize => this is the cost we are paying
+			but it will be at max 64MB + 5MB = 69MB ??? -> is this guaranteed? i don't think so
+		5. everything is sequential executed
+
+		Problems to solve:
+		1. we may have too much small chunks next to each other
+	*/
+	var refinedSectors []*DiskSector
+	for index, sector := range combinedSectors {
+		if sector.Squashed {
+			// this sector is already squashed no need to work on it
+			continue
+		}
+		if sector.Length >= S3MinChunkSizeLimit {
+			sector.PartNumber = int32(len(refinedSectors) + 1)
+			refinedSectors = append(refinedSectors, sector)
+			// then we will move to the next sector
+			continue
+		}
+		// after this all these sectors are smaller than 5MB
+		if sector.Type == vms3.PartUploadTypeCopy {
+			/*
+				now here we have the case when a copy sector, is below 5MB
+				and we will get an error in multipart upload, then how to fix
+				this?
+				we are sure that the next sector is changed, why? it will be reported with a different
+				length if it was
+				so we can just squash this sector which is not changed but is small, to the next sector,
+				and forget about it
+			*/
+			if index+1 >= len(combinedSectors) {
+				// this is the last sector, we can just add it and continue
+				// we do not change the last sector as it is free to go
+				sector.PartNumber = int32(len(refinedSectors) + 1)
+				refinedSectors = append(refinedSectors, sector)
+				break
+			}
+			sector.Squashed = true
+			nextSector := combinedSectors[index+1]
+			nextSector.Length = nextSector.Length + sector.Length
+			nextSector.StartOffset = sector.StartOffset
+			// we will not do anything
+			// not appending to refinedSectors -> as this sector is squashed
+			// we are not appending the nextSector -> as itself may be squashed to its next sector we do not know yet
+		} else if sector.Type == vms3.PartUploadTypeUpload {
+			/*
+				In this case we can just increase the length to 5MB without thinking about the next sectors,
+				as we are able to extend this part to 64MB but we are going with 5MB, as it will cause simpler logic
+
+				so we will try to change the length to 5MB and then iterate on the next sectors
+				and make them squashed if required
+			*/
+			if d.Disk.CapacityInBytes-sector.StartOffset < S3MinChunkSizeLimit {
+				sector.Length = d.Disk.CapacityInBytes - sector.StartOffset
+			} else {
+				sector.Length = S3MinChunkSizeLimit
+			}
+			sector.PartNumber = int32(len(refinedSectors) + 1)
+			// start offset is the same, we do not care about it
+			refinedSectors = append(refinedSectors, sector)
+			sectorNewEnd := sector.StartOffset + sector.Length
+			// then we will iterate on the next sectors until they are well over 5MB next
+			for i := index + 1; i < len(combinedSectors); i++ {
+				nextSector := combinedSectors[i]
+				nextSectorEnd := nextSector.StartOffset + nextSector.Length
+				if nextSector.StartOffset < sectorNewEnd {
+					if nextSectorEnd <= sectorNewEnd {
+						// fully engulfed the whole next sector
+						nextSector.Length = 0
+						nextSector.Squashed = true
+					} else {
+						// partially engulfed here
+						nextSector.Length = nextSectorEnd - sectorNewEnd
+						nextSector.StartOffset = sectorNewEnd
+					}
+				} else {
+					// it is finished
+					break
+				}
+			}
+		} else {
+			return nil, fmt.Errorf("unknown sector type when executing refinement")
+		}
+	}
+	return refinedSectors, nil
+}
+
 func (d *DiskTarget) CleanUploadSectors(ctx context.Context, changedSectors []*DiskSector) ([]*DiskSector, error) {
 	/*
 		Let us talk about it,
@@ -292,6 +387,7 @@ func (d *DiskTarget) CleanUploadSectors(ctx context.Context, changedSectors []*D
 			sector.PartNumber = int32(len(CombinedSectors) + 1)
 			CombinedSectors = append(CombinedSectors, sector)
 			currentCursor = sectorEnd
+			continue
 		} else if sectorStart > currentCursor {
 			// we have found a new not changed area from currentCursor to the sectorStart - 1
 			CombinedSectors = append(CombinedSectors, &DiskSector{
@@ -299,10 +395,12 @@ func (d *DiskTarget) CleanUploadSectors(ctx context.Context, changedSectors []*D
 				Length:      sectorStart - currentCursor,
 				PartNumber:  int32(len(CombinedSectors) + 1),
 				Type:        vms3.PartUploadTypeCopy,
+				Squashed:    false,
 			})
 			sector.PartNumber = int32(len(CombinedSectors) + 1)
 			CombinedSectors = append(CombinedSectors, sector)
 			currentCursor = sectorEnd
+			continue
 		} else if sectorStart < currentCursor {
 			// this may not happen
 			return nil, fmt.Errorf("sector start is less than current cursor")
@@ -314,13 +412,18 @@ func (d *DiskTarget) CleanUploadSectors(ctx context.Context, changedSectors []*D
 			Length:      fullDiskSize - sectorEnd,
 			PartNumber:  int32(len(CombinedSectors) + 1),
 			Type:        vms3.PartUploadTypeCopy,
+			Squashed:    false,
 		})
 	}
-	for _, sector := range CombinedSectors {
+	finalizedSectors, err := d.SquashSectors(ctx, CombinedSectors)
+	if err != nil {
+		return nil, err
+	}
+	for _, sector := range finalizedSectors {
 		slog.Debug("Combined sector", "Number", sector.PartNumber, "StartOffset", sector.StartOffset, "Length", sector.Length, "Type", sector.Type)
 	}
-	slog.Debug("Combined sectors", "FileSize", fullDiskSize, "CombinedSectors", CombinedSectors)
-	return CombinedSectors, nil
+	slog.Debug("Combined sectors", "FileSize", fullDiskSize, "finalizedSectors", finalizedSectors)
+	return finalizedSectors, nil
 }
 
 func (d *DiskTarget) IncrementalCopyDetection(ctx context.Context, oldChangeID *vmware.ChangeID) error {
@@ -359,6 +462,7 @@ func (d *DiskTarget) IncrementalCopyDetection(ctx context.Context, oldChangeID *
 					Length:      chunkSize,
 					PartNumber:  partNumber,
 					Type:        vms3.PartUploadTypeUpload,
+					Squashed:    false,
 				})
 				partNumber++
 				offset += chunkSize
