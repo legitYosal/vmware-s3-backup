@@ -420,7 +420,7 @@ func (d *DiskTarget) CleanUploadSectors(ctx context.Context, changedSectors []*D
 		return nil, err
 	}
 	for _, sector := range finalizedSectors {
-		slog.Debug("Combined sector", "Number", sector.PartNumber, "StartOffset", sector.StartOffset, "Length", sector.Length, "Type", sector.Type)
+		slog.Debug("Combined sector", "Number", sector.PartNumber, "StartOffset", sector.StartOffset, "Length", sector.Length, "Type", sector.Type, "EndOffset", sector.StartOffset+sector.Length)
 	}
 	slog.Debug("Combined sectors", "FileSize", fullDiskSize, "finalizedSectors", finalizedSectors)
 	return finalizedSectors, nil
