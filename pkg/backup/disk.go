@@ -18,8 +18,8 @@ import (
 	"libguestfs.org/libnbd"
 )
 
-const MaxChunkSize = 64 * 1024 * 1024       // 64 MB
-const S3MinChunkSizeLimit = 5 * 1024 * 1024 // 5 MB
+const MaxChunkSize = 64 * 1024 * 1024        // 64 MB
+const S3MinChunkSizeLimit = 10 * 1024 * 1024 // 5 MB
 
 type DiskTarget struct {
 	Disk            *types.VirtualDisk
@@ -436,7 +436,7 @@ func (d *DiskTarget) IncrementalCopy(ctx context.Context, mpu *vms3.MultiPartUpl
 						so we can find out if we move about the exact size of chunkSize
 						ahead, what happens
 					*/
-					if offset+chunkSize + 1 >= d.Disk.CapacityInBytes {
+					if offset+chunkSize+1 >= d.Disk.CapacityInBytes {
 						// this is the last chunk of the whole file, so we are free send it as it is
 						slog.Debug("This is the last chunk we are going to send to s3", "offset", offset, "chunkSize", chunkSize)
 					} else {
