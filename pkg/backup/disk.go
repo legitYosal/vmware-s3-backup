@@ -517,7 +517,7 @@ func (d *DiskTarget) IncrementalCopyDetection(ctx context.Context, mpu *vms3.Mul
 			if err := mpu.SendPart(
 				sector.PartNumber,
 				nil,
-				fmt.Sprintf("bytes=%d-%d", sector.StartOffset, sector.StartOffset+sector.Length),
+				fmt.Sprintf("bytes=%d-%d", sector.StartOffset, sector.StartOffset+sector.Length-1),
 				vms3.PartUploadTypeCopy,
 			); err != nil {
 				return fmt.Errorf("failed to send copy part %d to worker: %w", sector.PartNumber, err)
