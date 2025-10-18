@@ -63,8 +63,20 @@ func (s *S3DB) GetObject(ctx context.Context, bucketName string, objectKey strin
 	}
 	getObjectOutput, err := s.S3Client.GetObject(ctx, getObjectInput)
 	if err != nil {
-		slog.Error("Error getting object from S3 bucket", "bucketName", bucketName, "objectKey", objectKey, "error", err)
-		return nil, fmt.Errorf("failed to get object %s from bucket %s: %w", objectKey, bucketName, err)
+		var nsk *types.NoSuchKey
+		if errors.As(err, &nsk) {
+			slog.Debug("No such key found", "bucketName", bucketName, "objectKey", objectKey)
+			return nil, nil
+		}
+		var respErr interface{ HTTPStatusCode() int } // Interface to access the status code
+		if errors.As(err, &respErr) {
+			if respErr.HTTPStatusCode() == http.StatusNotFound { // http.StatusNotFound is 404
+				slog.Debug("S3 object not found via HTTP 404 check", "bucketName", bucketName, "objectKey", objectKey)
+				return nil, nil
+			}
+		}
+		slog.Error("Error getting metadata from S3 object", "bucketName", bucketName, "objectKey", objectKey, "error", err)
+		return nil, fmt.Errorf("failed to get metadata for object %s in bucket %s: %w", objectKey, bucketName, err)
 	}
 	body, err := io.ReadAll(getObjectOutput.Body)
 	if err != nil {
