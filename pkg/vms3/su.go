@@ -55,8 +55,11 @@ func (s *SimpleUpload) BootWorkers(ctx context.Context, numWorkers int) {
 }
 
 func (s *SimpleUpload) DispatchUpload(ctx context.Context, objectKey string, data []byte, customMetadata string) error {
-	if err := <-s.errChan; err != nil {
+	select {
+	case err := <-s.errChan:
 		return err
+	default:
+		// No error, continue
 	}
 	s.jobChan <- SimpleUploadJob{
 		ObjectKey: objectKey,
