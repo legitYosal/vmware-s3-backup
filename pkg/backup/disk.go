@@ -347,6 +347,7 @@ func (d *DiskTarget) FullCopy(ctx context.Context, su *vms3.SimpleUpload) error 
 				PartNumber:  partNumber,
 				Compression: S3CompressionSparse,
 			})
+			slog.Debug("Add Sparse chunk to manifest", "startOffset", offset, "length", chunkSize, "partNumber", partNumber)
 			numberOfSparseParts++
 		} else {
 			buf, err = compressBufferZstd(buf)
@@ -367,8 +368,6 @@ func (d *DiskTarget) FullCopy(ctx context.Context, su *vms3.SimpleUpload) error 
 				Compression: S3CompressionZstd,
 			})
 		}
-
-		slog.Debug("Sent part to workers", "partNumber", partNumber, "offset", offset, "chunkSize", chunkSize)
 		partNumber++
 		offset += chunkSize
 	}
