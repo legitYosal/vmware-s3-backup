@@ -8,6 +8,7 @@ var downloadBackupCmd = &cobra.Command{
 	Use:   "download-backup <VM_KEY> <DISK_KEY> <LOCAL_PATH>",
 	Short: "Download a backup from S3",
 	Long:  `The download-backup command downloads a backup from S3 to a local directory.`,
+	Args:  cobra.ExactArgs(3),
 	Run: func(cmd *cobra.Command, args []string) {
 		if len(args) != 3 {
 			cmd.Help()
