@@ -199,6 +199,7 @@ func (db *S3DB) ListVirtualObjectMachines(ctx context.Context) ([]*VirtualObject
 	}
 	var vmList []*VirtualObjectMachine
 	for _, object := range objects {
+		slog.Debug("Processing virtual machine object", "object", object)
 		vmKey := strings.TrimPrefix(object, ObjectKeyPrefix+"-")
 		disks, err := db.ListVirtualObjectDisks(ctx, object)
 		if err != nil {
@@ -243,14 +244,17 @@ func (db *S3DB) ListVirtualObjectDisks(ctx context.Context, vmObjectKey string) 
 	}
 	var disks []*VirtualObjectDisk
 	for _, object := range objects {
+		slog.Debug("Processing virtual object disk", "object", object)
 		diskKey := strings.TrimPrefix(object, vmObjectKey+"/"+DiskObjectKeyPrefix+"-")
 		manifestKey := GetDiskManifestObjectKey(object)
 		manifest, err := db.GetVirtualObjectDiskManifest(ctx, manifestKey)
 		if err != nil {
+			slog.Error("Error getting virtual object disk manifest", "error", err)
 			return nil, err
 		}
 		partKeys, err := db.ListObjects(ctx, object+"/"+S3FullObjectPartsKeyPrefix+"/")
 		if err != nil {
+			slog.Error("Error listing virtual object disk parts", "error", err)
 			return nil, err
 		}
 		if len(partKeys) != (len(manifest.FullChunksMetadata) - manifest.NumberOfSparseParts) {
