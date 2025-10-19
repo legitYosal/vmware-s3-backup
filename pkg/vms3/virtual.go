@@ -167,9 +167,9 @@ func (v *VirtualObjectDisk) RestoreDiskToLocalPath(ctx context.Context, s3DB *S3
 	for expectingPart <= int32(totalParts) {
 		partMetadata := v.Manifest.FullChunksMetadata[expectingPart-1]
 		if partMetadata.Compression == S3CompressionSparse {
-			if err := file.Truncate(partMetadata.StartOffset + partMetadata.Length); err != nil {
-				return fmt.Errorf("failed to truncate file: %w", err)
-			}
+			// if err := file.Truncate(partMetadata.StartOffset + partMetadata.Length); err != nil {
+			// 	return fmt.Errorf("failed to truncate file: %w", err)
+			// }
 			expectingPart++
 			continue
 		}
