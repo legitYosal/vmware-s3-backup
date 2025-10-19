@@ -200,22 +200,22 @@ func (db *S3DB) ListVirtualObjectMachines(ctx context.Context) ([]*VirtualObject
 	var vmList []*VirtualObjectMachine
 	for _, object := range objects {
 		slog.Debug("Processing virtual machine object", "object", object)
-		vmKey := strings.TrimPrefix(object, ObjectKeyPrefix+"-")
-		disks, err := db.ListVirtualObjectDisks(ctx, object)
-		if err != nil {
-			return nil, err
-		}
-		if len(disks) == 0 {
-			slog.Debug("No disks found for VM", "vmObjectKey", object)
-			continue
-		}
-		vm := &VirtualObjectMachine{
-			ObjectKey:   object,
-			Disks:       disks,
-			VMKey:       vmKey,
-			RootDiskKey: disks[0].ObjectKey,
-		}
-		vmList = append(vmList, vm)
+		// vmKey := strings.TrimPrefix(object, ObjectKeyPrefix+"-")
+		// disks, err := db.ListVirtualObjectDisks(ctx, object)
+		// if err != nil {
+		// 	return nil, err
+		// }
+		// if len(disks) == 0 {
+		// 	slog.Debug("No disks found for VM", "vmObjectKey", object)
+		// 	continue
+		// }
+		// vm := &VirtualObjectMachine{
+		// 	ObjectKey:   object,
+		// 	Disks:       disks,
+		// 	VMKey:       vmKey,
+		// 	RootDiskKey: disks[0].ObjectKey,
+		// }
+		// vmList = append(vmList, vm)
 	}
 	return vmList, nil
 }
