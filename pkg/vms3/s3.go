@@ -192,8 +192,9 @@ func (db *S3DB) CreateMultipartUpload(ctx context.Context, objectKey string, cus
 	}, nil
 }
 
-func (db *S3DB) ListVirtualObjectMachines(ctx context.Context) ([]*VirtualObjectMachine, error) {
-	objects, err := db.ListObjects(ctx, ObjectKeyPrefix+"-")
+func (db *S3DB) ListVirtualObjectMachines(ctx context.Context, vmKeyFilter string) ([]*VirtualObjectMachine, error) {
+	// put vmKey = "" for listing all vm machines
+	objects, err := db.ListObjects(ctx, ObjectKeyPrefix+"-"+vmKeyFilter)
 	if err != nil {
 		return nil, err
 	}
@@ -227,7 +228,7 @@ func (db *S3DB) ListVirtualObjectMachines(ctx context.Context) ([]*VirtualObject
 				return nil, err
 			}
 			disk := &VirtualObjectDisk{
-				ObjectKey:   diskObjectKey,
+				ObjectKey:   vmObjectKey + "/" + diskObjectKey,
 				DiskKey:     diskKey,
 				Manifest:    manifest,
 				PartKeys:    []string{},

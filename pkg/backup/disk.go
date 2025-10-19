@@ -2,6 +2,8 @@ package backup
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"log/slog"
@@ -181,6 +183,12 @@ func isChunkAllZeros(b []byte) bool {
 	return true
 }
 
+func calculateSHA256(data []byte) string {
+	h := sha256.New()
+	h.Write(data)
+	return hex.EncodeToString(h.Sum(nil))
+}
+
 func (d *DiskTarget) FullCopy(ctx context.Context, su *vms3.SimpleUpload) error {
 
 	slog.Info("Starting full copy to S3", "diskKey", d.GetDiskKey(), "sizeBytes", d.GetDiskSizeBytes())
@@ -225,6 +233,7 @@ func (d *DiskTarget) FullCopy(ctx context.Context, su *vms3.SimpleUpload) error 
 				Length:      chunkSize,
 				PartNumber:  partNumber,
 				Compression: vms3.S3CompressionSparse,
+				Checksum:    "",
 			})
 			slog.Debug("Add Sparse chunk to manifest", "startOffset", offset, "length", chunkSize, "partNumber", partNumber)
 			numberOfSparseParts++
@@ -238,6 +247,7 @@ func (d *DiskTarget) FullCopy(ctx context.Context, su *vms3.SimpleUpload) error 
 				Length:      chunkSize,
 				PartNumber:  partNumber,
 				Compression: vms3.S3CompressionZstd,
+				Checksum:    calculateSHA256(buf),
 			}
 			metadataJSON, err := metadata.ToJSON()
 			if err != nil {
