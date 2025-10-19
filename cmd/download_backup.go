@@ -9,30 +9,24 @@ var downloadBackupCmd = &cobra.Command{
 	Short: "Download a backup from S3",
 	Long:  `The download-backup command downloads a backup from S3 to a local directory.`,
 	Args:  cobra.ExactArgs(3),
-	Run: func(cmd *cobra.Command, args []string) {
-		if len(args) != 3 {
-			cmd.Help()
-			return
-		}
+	RunE: func(cmd *cobra.Command, args []string) error {
 		vmKey := args[0]
 		diskKey := args[1]
 		localPath := args[2]
 		vmList, err := cli.S3DB.ListVirtualObjectMachines(cmd.Context(), vmKey)
 		if err != nil {
-			cmd.Help()
-			return
+			return err
 		}
 		vm := vmList[0]
 		for _, disk := range vm.Disks {
 			if disk.DiskKey == diskKey {
 				err = disk.RestoreDiskToLocalPath(cmd.Context(), cli.S3DB, localPath)
 				if err != nil {
-					cmd.Help()
-					return
+					return err
 				}
-				return
 			}
 		}
+		return nil
 	},
 }
 
