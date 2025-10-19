@@ -202,6 +202,10 @@ func (db *S3DB) ListVirtualObjectMachines(ctx context.Context) ([]*VirtualObject
 	diskKeyMapping := make(map[string]*VirtualObjectDisk)
 	for _, object := range objects {
 		slog.Debug("Processing virtual machine object", "object", object)
+		if len(strings.Split(object, "/")) < 3 {
+			slog.Error("object not in the correct format in the vm backup ", "object", object)
+			return nil, fmt.Errorf("object not in the correct format in the vm backup %s", object)
+		}
 		vmObjectKey := strings.Split(object, "/")[0]
 		vmKey := strings.TrimPrefix(vmObjectKey, ObjectKeyPrefix+"-")
 		if _, ok := vmKeyMapping[vmKey]; !ok {
@@ -217,7 +221,7 @@ func (db *S3DB) ListVirtualObjectMachines(ctx context.Context) ([]*VirtualObject
 		diskObjectKey := strings.Split(object, "/")[1]
 		diskKey := strings.TrimPrefix(diskObjectKey, DiskObjectKeyPrefix+"-")
 		if _, ok := diskKeyMapping[diskKey]; !ok {
-			manifestKey := GetDiskManifestObjectKey(object)
+			manifestKey := GetDiskManifestObjectKey(vmObjectKey + "/" + diskObjectKey)
 			manifest, err := db.GetVirtualObjectDiskManifest(ctx, manifestKey)
 			if err != nil {
 				slog.Error("Error getting virtual object disk manifest", "error", err)
