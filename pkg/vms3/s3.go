@@ -198,78 +198,49 @@ func (db *S3DB) ListVirtualObjectMachines(ctx context.Context) ([]*VirtualObject
 		return nil, err
 	}
 	var vmList []*VirtualObjectMachine
+	vmKeyMapping := make(map[string]*VirtualObjectMachine)
+	diskKeyMapping := make(map[string]*VirtualObjectDisk)
 	for _, object := range objects {
 		slog.Debug("Processing virtual machine object", "object", object)
-		// vmKey := strings.TrimPrefix(object, ObjectKeyPrefix+"-")
-		// disks, err := db.ListVirtualObjectDisks(ctx, object)
-		// if err != nil {
-		// 	return nil, err
-		// }
-		// if len(disks) == 0 {
-		// 	slog.Debug("No disks found for VM", "vmObjectKey", object)
-		// 	continue
-		// }
-		// vm := &VirtualObjectMachine{
-		// 	ObjectKey:   object,
-		// 	Disks:       disks,
-		// 	VMKey:       vmKey,
-		// 	RootDiskKey: disks[0].ObjectKey,
-		// }
-		// vmList = append(vmList, vm)
+		vmObjectKey := strings.Split(object, "/")[0]
+		vmKey := strings.TrimPrefix(vmObjectKey, ObjectKeyPrefix+"-")
+		if _, ok := vmKeyMapping[vmKey]; !ok {
+			vm := &VirtualObjectMachine{
+				ObjectKey:   vmObjectKey,
+				VMKey:       vmKey,
+				Disks:       []*VirtualObjectDisk{},
+				RootDiskKey: "",
+			}
+			vmKeyMapping[vmKey] = vm
+			vmList = append(vmList, vm)
+		}
+		diskObjectKey := strings.Split(object, "/")[1]
+		diskKey := strings.TrimPrefix(diskObjectKey, DiskObjectKeyPrefix+"-")
+		if _, ok := diskKeyMapping[diskKey]; !ok {
+			manifestKey := GetDiskManifestObjectKey(object)
+			manifest, err := db.GetVirtualObjectDiskManifest(ctx, manifestKey)
+			if err != nil {
+				slog.Error("Error getting virtual object disk manifest", "error", err)
+				return nil, err
+			}
+			disk := &VirtualObjectDisk{
+				ObjectKey:   diskObjectKey,
+				DiskKey:     diskKey,
+				Manifest:    manifest,
+				PartKeys:    []string{},
+				ManifestKey: manifestKey,
+			}
+			vm := vmKeyMapping[vmKey]
+			vm.Disks = append(vm.Disks, disk)
+			diskKeyMapping[diskKey] = disk
+		}
+		thirdPartOfKey := strings.Split(object, "/")[2]
+		if thirdPartOfKey == S3FullObjectPartsKeyPrefix {
+			disk := diskKeyMapping[diskKey]
+			disk.PartKeys = append(disk.PartKeys, object)
+		}
 	}
 	return vmList, nil
-}
-
-func (db *S3DB) GetVirtualObjectMachine(ctx context.Context, vmKey string) (*VirtualObjectMachine, error) {
-	vmObjectKey := CreateVMPrefixKey(vmKey)
-	disks, err := db.ListVirtualObjectDisks(ctx, vmObjectKey)
-	if err != nil {
-		return nil, err
-	}
-	if len(disks) == 0 {
-		return nil, fmt.Errorf("no disks found for VM %s", vmKey)
-	}
-	return &VirtualObjectMachine{
-		ObjectKey:   vmObjectKey,
-		Disks:       disks,
-		VMKey:       vmKey,
-		RootDiskKey: disks[0].ObjectKey,
-	}, nil
-}
-
-func (db *S3DB) ListVirtualObjectDisks(ctx context.Context, vmObjectKey string) ([]*VirtualObjectDisk, error) {
-	objects, err := db.ListObjects(ctx, vmObjectKey+"/"+DiskObjectKeyPrefix+"-")
-	if err != nil {
-		return nil, err
-	}
-	var disks []*VirtualObjectDisk
-	for _, object := range objects {
-		slog.Debug("Processing virtual object disk", "object", object)
-		diskKey := strings.TrimPrefix(object, vmObjectKey+"/"+DiskObjectKeyPrefix+"-")
-		manifestKey := GetDiskManifestObjectKey(object)
-		manifest, err := db.GetVirtualObjectDiskManifest(ctx, manifestKey)
-		if err != nil {
-			slog.Error("Error getting virtual object disk manifest", "error", err)
-			return nil, err
-		}
-		partKeys, err := db.ListObjects(ctx, object+"/"+S3FullObjectPartsKeyPrefix+"/")
-		if err != nil {
-			slog.Error("Error listing virtual object disk parts", "error", err)
-			return nil, err
-		}
-		if len(partKeys) != (len(manifest.FullChunksMetadata) - manifest.NumberOfSparseParts) {
-			return nil, fmt.Errorf("number of full parts in the manifest does not match the number of parts in the s3, conflicting data for vm %s and disk %s", vmObjectKey, object)
-		}
-		disk := &VirtualObjectDisk{
-			ObjectKey:   object,
-			ManifestKey: manifestKey,
-			DiskKey:     diskKey,
-			Manifest:    manifest,
-			PartKeys:    partKeys,
-		}
-		disks = append(disks, disk)
-	}
-	return disks, nil
 }
 
 func (db *S3DB) GetVirtualObjectDiskManifest(ctx context.Context, manifestObjectKey string) (*DiskManifest, error) {
