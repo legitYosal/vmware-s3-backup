@@ -1,19 +1,15 @@
 package backup
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
-	"io"
 	"log/slog"
 	"os"
 	"os/signal"
 	"strconv"
 	"syscall"
-	"time"
 
-	"github.com/klauspost/compress/zstd"
 	"github.com/legitYosal/vmware-s3-backup/pkg/nbdkit"
 	"github.com/legitYosal/vmware-s3-backup/pkg/vms3"
 	"github.com/legitYosal/vmware-s3-backup/pkg/vmware"
@@ -32,17 +28,6 @@ type DiskTarget struct {
 	CurrentChangeID *vmware.ChangeID
 }
 
-type DiskManifest struct {
-	Name                string                 `json:"name"`
-	ID                  string                 `json:"id"`
-	ObjectKey           string                 `json:"object_key"`
-	ChangeID            string                 `json:"change_id"`
-	DiskKey             string                 `json:"disk_key"`
-	SizeBytes           int64                  `json:"size_bytes"`
-	NumberOfSparseParts int                    `json:"number_of_sparse_parts"`
-	FullChunksMetadata  []*S3FullChunkMetadata `json:"full_chunks_metadata"`
-}
-
 // these can be of two types of multipart copy or upload
 type DiskSector struct {
 	StartOffset int64
@@ -50,38 +35,6 @@ type DiskSector struct {
 	PartNumber  int32
 	Type        vms3.PartUploadType
 	Squashed    bool
-}
-
-type S3Compression string
-
-const (
-	S3CompressionNone   S3Compression = "none"
-	S3CompressionZstd   S3Compression = "zstd"
-	S3CompressionSparse S3Compression = "sparse"
-)
-
-type S3FullChunkMetadata struct {
-	StartOffset int64
-	Length      int64
-	PartNumber  int32
-	Compression S3Compression
-}
-
-func NewS3FullChunkMetadata(startOffset int64, length int64, partNumber int32, compression S3Compression) *S3FullChunkMetadata {
-	return &S3FullChunkMetadata{
-		StartOffset: startOffset,
-		Length:      length,
-		PartNumber:  partNumber,
-		Compression: compression,
-	}
-}
-
-func (s *S3FullChunkMetadata) ToJSON() (string, error) {
-	jsonData, err := json.Marshal(s)
-	if err != nil {
-		return "", err
-	}
-	return string(jsonData), nil
 }
 
 func NewDiskTarget(disk *types.VirtualDisk, socketRef *nbdkit.NbdkitSocket, vm *DetailedVirtualMachine, vmKey string) (*DiskTarget, error) {
@@ -98,28 +51,8 @@ func NewDiskTarget(disk *types.VirtualDisk, socketRef *nbdkit.NbdkitSocket, vm *
 	}, nil
 }
 
-func (d *DiskManifest) GetChangeID() (*vmware.ChangeID, error) {
-	changeID, err := vmware.ParseChangeID(d.ChangeID)
-	if err != nil {
-		return nil, err
-	}
-	return changeID, nil
-}
-
 func (d *DiskTarget) GetDiskObjectKey() string {
 	return vms3.CreateDiskObjectKey(d.VMKey, d.GetDiskKey()) // this will be like: vm-data-<vmkey>/disk-data-<int>
-}
-
-func (d *DiskTarget) GetS3FullObjectKey(prefixKey string, partNumber int32) string {
-	// vm-uuid/disk-key/full/part-number
-	return fmt.Sprintf("%s/full/%06d", prefixKey, partNumber)
-}
-func (d *DiskTarget) GetS3IncrementalObjectKey(prefixKey string, datetime time.Time) string {
-	// vm-uuid/disk-key/incremental/YYYY-MM-DD-HH-MM-SS
-	return fmt.Sprintf("%s/incremental/%s", prefixKey, datetime.Format("2006-01-02-15-04-05"))
-}
-func (d *DiskTarget) GetDiskManifestObjectKey(prefixKey string) string {
-	return fmt.Sprintf("%s/manifest.json", prefixKey)
 }
 
 func (d *DiskTarget) GetDiskKey() string {
@@ -130,8 +63,8 @@ func (d *DiskTarget) GetDiskSizeBytes() int64 {
 	return d.Disk.CapacityInBytes
 }
 
-func (d *DiskTarget) GetCurrentDiskManifest() *DiskManifest {
-	return &DiskManifest{
+func (d *DiskTarget) GetCurrentDiskManifest() *vms3.DiskManifest {
+	return &vms3.DiskManifest{
 		Name:      d.VM.GetName(),
 		ID:        d.VM.GetID(),
 		ObjectKey: d.GetDiskObjectKey(),
@@ -141,65 +74,19 @@ func (d *DiskTarget) GetCurrentDiskManifest() *DiskManifest {
 	}
 }
 
-func (d *DiskTarget) GetOldDiskManifestFromS3(ctx context.Context) (*DiskManifest, error) {
-	manifestObjectKey := d.GetDiskManifestObjectKey(d.GetDiskObjectKey())
-	data, err := d.VM.S3BackupClient.S3DB.GetObject(
+func (d *DiskTarget) GetOldDiskManifestFromS3(ctx context.Context) (*vms3.DiskManifest, error) {
+	manifestObjectKey := vms3.GetDiskManifestObjectKey(d.GetDiskObjectKey())
+	diskManifest, err := d.VM.S3BackupClient.S3DB.GetVirtualObjectDiskManifest(
 		ctx,
-		d.VM.S3BackupClient.Configuration.S3BucketName,
 		manifestObjectKey,
 	)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed to get disk manifest from S3: %w", err)
 	}
-	if len(data) == 0 {
-		return nil, nil
-	}
-	var diskManifest DiskManifest
-	err = json.Unmarshal(data, &diskManifest)
-	if err != nil {
-		return nil, err
-	}
-	return &diskManifest, nil
+	return diskManifest, nil
 }
 
-func compressBufferZstd(data []byte) ([]byte, error) {
-	var compressedBuf bytes.Buffer
-	writer, err := zstd.NewWriter(&compressedBuf)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create zstd writer: %w", err)
-	}
-	_, err = writer.Write(data)
-	if err != nil {
-		writer.Close() // Ensure the writer is closed on error
-		return nil, fmt.Errorf("failed to write data to zstd writer: %w", err)
-	}
-	if err := writer.Close(); err != nil {
-		return nil, fmt.Errorf("failed to close zstd writer: %w", err)
-	}
-	return compressedBuf.Bytes(), nil
-}
-
-func decompressBufferZstd(compressedData []byte, originalSize int) ([]byte, error) {
-	dstBuf := make([]byte, originalSize)
-	compressedReader := bytes.NewReader(compressedData)
-	reader, err := zstd.NewReader(compressedReader)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create zstd reader: %w", err)
-	}
-	defer reader.Close()
-	n, err := io.ReadFull(reader, dstBuf)
-	if err != nil && err != io.EOF && err != io.ErrUnexpectedEOF {
-		// io.ErrUnexpectedEOF can happen if the originalSize was wrong (too small)
-		return nil, fmt.Errorf("failed to read decompressed data: %w", err)
-	}
-	if n != originalSize {
-		// This is a critical error, meaning the decompression failed or size was wrong.
-		return nil, fmt.Errorf("decompressed size mismatch: expected %d bytes, got %d", originalSize, n)
-	}
-	return dstBuf, nil
-}
-
-func (d *DiskTarget) NeedsFullCopy(ctx context.Context, diskManifest *DiskManifest) (bool, error) {
+func (d *DiskTarget) NeedsFullCopy(ctx context.Context, diskManifest *vms3.DiskManifest) (bool, error) {
 	if diskManifest == nil {
 		return true, nil
 	}
@@ -245,21 +132,20 @@ func (d *DiskTarget) StartSync(ctx context.Context) error {
 		os.Exit(1)
 	}()
 
-	// Create multipart upload
-	currentMetadata := d.GetCurrentDiskManifest()
-	metadataJSON, err := json.Marshal(currentMetadata)
-	if err != nil {
-		return fmt.Errorf("failed to marshal disk metadata: %w", err)
-	}
+	// // Create multipart upload
+	// currentMetadata := d.GetCurrentDiskManifest()
+	// metadataJSON, err := json.Marshal(currentMetadata)
+	// if err != nil {
+	// 	return fmt.Errorf("failed to marshal disk metadata: %w", err)
+	// }
 
 	su := vms3.NewSimpleUpload(
-		d.VM.S3BackupClient.Configuration.S3BucketName,
 		d.VM.S3BackupClient.S3DB,
 	)
 	su.BootWorkers(ctx, 4)
 
-	// Boot workers (4 workers by default)
-	su.DispatchUpload(ctx, d.GetDiskObjectKey(), metadataJSON, string(metadataJSON))
+	// // Boot workers (4 workers by default)
+	// su.DispatchUpload(ctx, d.GetDiskObjectKey(), metadataJSON, string(metadataJSON))
 
 	if needFullCopy {
 		err := d.FullCopy(ctx, su)
@@ -314,7 +200,7 @@ func (d *DiskTarget) FullCopy(ctx context.Context, su *vms3.SimpleUpload) error 
 
 	numberOfSparseParts := 0
 
-	diskFullChunksMetadata := []*S3FullChunkMetadata{}
+	diskFullChunksMetadata := []*vms3.S3FullChunkMetadata{}
 
 	var partNumber int32 = 1
 	for offset := int64(0); offset < d.Disk.CapacityInBytes; {
@@ -341,37 +227,37 @@ func (d *DiskTarget) FullCopy(ctx context.Context, su *vms3.SimpleUpload) error 
 			// if err := su.DispatchUpload(ctx, d.GetS3FullObjectKey(diskObjectKey, partNumber), []byte{}, metadata); err != nil {
 			// 	return fmt.Errorf("failed to dispatch sparse upload: %w", err)
 			// }
-			diskFullChunksMetadata = append(diskFullChunksMetadata, &S3FullChunkMetadata{
+			diskFullChunksMetadata = append(diskFullChunksMetadata, &vms3.S3FullChunkMetadata{
 				StartOffset: offset,
 				Length:      chunkSize,
 				PartNumber:  partNumber,
-				Compression: S3CompressionSparse,
+				Compression: vms3.S3CompressionSparse,
 			})
 			slog.Debug("Add Sparse chunk to manifest", "startOffset", offset, "length", chunkSize, "partNumber", partNumber)
 			numberOfSparseParts++
 		} else {
-			buf, err = compressBufferZstd(buf)
+			buf, err = vms3.CompressBufferZstd(buf)
 			if err != nil {
 				return fmt.Errorf("failed to compress buffer: %w", err)
 			}
-			metadata, err := NewS3FullChunkMetadata(offset, chunkSize, partNumber, S3CompressionZstd).ToJSON()
+			metadata, err := vms3.NewS3FullChunkMetadata(offset, chunkSize, partNumber, vms3.S3CompressionZstd).ToJSON()
 			if err != nil {
 				return fmt.Errorf("failed to marshal S3 full chunk metadata: %w", err)
 			}
-			if err := su.DispatchUpload(ctx, d.GetS3FullObjectKey(diskObjectKey, partNumber), buf, metadata); err != nil {
+			if err := su.DispatchUpload(ctx, vms3.GetS3FullObjectKey(diskObjectKey, partNumber), buf, metadata); err != nil {
 				return fmt.Errorf("failed to dispatch upload: %w", err)
 			}
-			diskFullChunksMetadata = append(diskFullChunksMetadata, &S3FullChunkMetadata{
+			diskFullChunksMetadata = append(diskFullChunksMetadata, &vms3.S3FullChunkMetadata{
 				StartOffset: offset,
 				Length:      chunkSize,
 				PartNumber:  partNumber,
-				Compression: S3CompressionZstd,
+				Compression: vms3.S3CompressionZstd,
 			})
 		}
 		partNumber++
 		offset += chunkSize
 	}
-	diskManifest := &DiskManifest{
+	diskManifest := &vms3.DiskManifest{
 		Name:                d.VM.GetName(),
 		ID:                  d.VM.GetID(),
 		ObjectKey:           diskObjectKey,
@@ -385,7 +271,7 @@ func (d *DiskTarget) FullCopy(ctx context.Context, su *vms3.SimpleUpload) error 
 	if err != nil {
 		return fmt.Errorf("failed to marshal disk metadata: %w", err)
 	}
-	if err := su.DispatchUpload(ctx, d.GetDiskManifestObjectKey(diskObjectKey), metadataJSON, ""); err != nil {
+	if err := su.DispatchUpload(ctx, vms3.GetDiskManifestObjectKey(diskObjectKey), metadataJSON, ""); err != nil {
 		return fmt.Errorf("failed to dispatch upload for manifest file: %w", err)
 	}
 	slog.Info("Full copy to S3 completed", "diskKey", d.GetDiskKey(), "totalParts", partNumber-1)

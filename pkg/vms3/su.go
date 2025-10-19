@@ -13,8 +13,7 @@ type SimpleUploadJob struct {
 }
 
 type SimpleUpload struct {
-	BucketName string
-	DB         *S3DB
+	DB *S3DB
 
 	jobChan   chan SimpleUploadJob
 	errChan   chan error
@@ -22,10 +21,9 @@ type SimpleUpload struct {
 	semaphore chan struct{}
 }
 
-func NewSimpleUpload(bucketName string, db *S3DB) *SimpleUpload {
+func NewSimpleUpload(db *S3DB) *SimpleUpload {
 	return &SimpleUpload{
-		BucketName: bucketName,
-		DB:         db,
+		DB: db,
 	}
 }
 
@@ -42,7 +40,7 @@ func (s *SimpleUpload) BootWorkers(ctx context.Context, numWorkers int) {
 			for job := range s.jobChan {
 				slog.Debug("Uploading object", "workerID", workerID, "objectKey", job.ObjectKey)
 				s.semaphore <- struct{}{}
-				err := s.DB.UploadFile(ctx, s.BucketName, job.ObjectKey, job.Data, job.Metadata)
+				err := s.DB.UploadFile(ctx, job.ObjectKey, job.Data, job.Metadata)
 				<-s.semaphore
 				if err != nil {
 					s.errChan <- err

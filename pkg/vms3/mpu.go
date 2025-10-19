@@ -51,29 +51,6 @@ type MultiPartUpload struct {
 	semaphore chan struct{} // Semaphore to limit concurrent uploads
 }
 
-func (db *S3DB) CreateMultipartUpload(ctx context.Context, bucketName string, objectKey string, customMetadata string) (*MultiPartUpload, error) {
-	input := &s3.CreateMultipartUploadInput{
-		Bucket:   aws.String(bucketName),
-		Key:      aws.String(objectKey),
-		Metadata: map[string]string{CustomMetadataHeader: customMetadata},
-	}
-
-	result, err := db.S3Client.CreateMultipartUpload(ctx, input)
-	if err != nil {
-		return nil, fmt.Errorf("failed to initiate multipart upload for %s: %w", objectKey, err)
-	}
-
-	uploadID := aws.ToString(result.UploadId)
-	slog.Debug("Upload initiated successfully", "uploadID", uploadID)
-	return &MultiPartUpload{
-		UploadID:   uploadID,
-		BucketName: bucketName,
-		ObjectKey:  objectKey,
-		Parts:      []UploadPart{},
-		db:         db,
-	}, nil
-}
-
 func (p *MultiPartUpload) UploadPart(ctx context.Context, partNumber int32, data *io.Reader) error {
 	slog.Debug("Uploading part", "partNumber", partNumber)
 

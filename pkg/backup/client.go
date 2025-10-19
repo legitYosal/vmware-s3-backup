@@ -117,7 +117,7 @@ func (c *VmwareS3BackupClient) ConnectToVMware(ctx context.Context) error {
 
 func (c *VmwareS3BackupClient) ConnectToS3(ctx context.Context) error {
 	slog.Debug("Connecting to S3", "url", c.Configuration.S3URL)
-	s3DB, err := vms3.CreateS3Client(ctx, c.Configuration.S3URL, c.Configuration.S3AccessKey, c.Configuration.S3SecretKey, c.Configuration.S3Region)
+	s3DB, err := vms3.CreateS3Client(ctx, c.Configuration.S3URL, c.Configuration.S3AccessKey, c.Configuration.S3SecretKey, c.Configuration.S3Region, c.Configuration.S3BucketName)
 	if err != nil {
 		return fmt.Errorf("failed to create S3 client: %w", err)
 	}
