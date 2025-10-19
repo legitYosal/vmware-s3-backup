@@ -220,13 +220,6 @@ func (d *DiskTarget) FullCopy(ctx context.Context, su *vms3.SimpleUpload) error 
 		isAllZeros := isChunkAllZeros(buf)
 
 		if isAllZeros {
-			// metadata, err := NewS3FullChunkMetadata(offset, chunkSize, partNumber, S3CompressionSparse).ToJSON()
-			// if err != nil {
-			// 	return fmt.Errorf("failed to marshal S3 full chunk metadata: %w", err)
-			// }
-			// if err := su.DispatchUpload(ctx, d.GetS3FullObjectKey(diskObjectKey, partNumber), []byte{}, metadata); err != nil {
-			// 	return fmt.Errorf("failed to dispatch sparse upload: %w", err)
-			// }
 			diskFullChunksMetadata = append(diskFullChunksMetadata, &vms3.S3FullChunkMetadata{
 				StartOffset: offset,
 				Length:      chunkSize,
@@ -240,19 +233,20 @@ func (d *DiskTarget) FullCopy(ctx context.Context, su *vms3.SimpleUpload) error 
 			if err != nil {
 				return fmt.Errorf("failed to compress buffer: %w", err)
 			}
-			metadata, err := vms3.NewS3FullChunkMetadata(offset, chunkSize, partNumber, vms3.S3CompressionZstd).ToJSON()
-			if err != nil {
-				return fmt.Errorf("failed to marshal S3 full chunk metadata: %w", err)
-			}
-			if err := su.DispatchUpload(ctx, vms3.GetS3FullObjectKey(diskObjectKey, partNumber), buf, metadata); err != nil {
-				return fmt.Errorf("failed to dispatch upload: %w", err)
-			}
-			diskFullChunksMetadata = append(diskFullChunksMetadata, &vms3.S3FullChunkMetadata{
+			metadata := &vms3.S3FullChunkMetadata{
 				StartOffset: offset,
 				Length:      chunkSize,
 				PartNumber:  partNumber,
 				Compression: vms3.S3CompressionZstd,
-			})
+			}
+			metadataJSON, err := metadata.ToJSON()
+			if err != nil {
+				return fmt.Errorf("failed to marshal S3 full chunk metadata: %w", err)
+			}
+			if err := su.DispatchUpload(ctx, vms3.GetS3FullObjectKey(diskObjectKey, partNumber), buf, metadataJSON); err != nil {
+				return fmt.Errorf("failed to dispatch upload: %w", err)
+			}
+			diskFullChunksMetadata = append(diskFullChunksMetadata, metadata)
 		}
 		partNumber++
 		offset += chunkSize
