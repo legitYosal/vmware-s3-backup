@@ -253,7 +253,7 @@ func (d *DiskTarget) FullCopy(ctx context.Context, su *vms3.SimpleUpload) error 
 			if err != nil {
 				return fmt.Errorf("failed to marshal S3 full chunk metadata: %w", err)
 			}
-			if err := su.DispatchUpload(ctx, vms3.GetS3FullObjectKey(diskObjectKey, partNumber), buf, metadataJSON); err != nil {
+			if err := su.DispatchUpload(ctx, vms3.GetS3FullObjectKey(diskObjectKey, partNumber), buf, metadataJSON, metadata.Checksum); err != nil {
 				return fmt.Errorf("failed to dispatch upload: %w", err)
 			}
 			diskFullChunksMetadata = append(diskFullChunksMetadata, metadata)
@@ -275,7 +275,7 @@ func (d *DiskTarget) FullCopy(ctx context.Context, su *vms3.SimpleUpload) error 
 	if err != nil {
 		return fmt.Errorf("failed to marshal disk metadata: %w", err)
 	}
-	if err := su.DispatchUpload(ctx, vms3.GetDiskManifestObjectKey(diskObjectKey), metadataJSON, ""); err != nil {
+	if err := su.DispatchUpload(ctx, vms3.GetDiskManifestObjectKey(diskObjectKey), metadataJSON, "", calculateSHA256(metadataJSON)); err != nil {
 		return fmt.Errorf("failed to dispatch upload for manifest file: %w", err)
 	}
 	slog.Info("Full copy to S3 completed", "diskKey", d.GetDiskKey(), "totalParts", partNumber-1)

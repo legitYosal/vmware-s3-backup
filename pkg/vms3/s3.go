@@ -138,13 +138,13 @@ func (s *S3DB) GetMetadataInObject(ctx context.Context, objectKey string) (strin
 	return headObjectOutput.Metadata[CustomMetadataHeader], nil
 }
 
-func (s *S3DB) UploadFile(ctx context.Context, objectKey string, data []byte, customMetadata string) error {
+func (s *S3DB) UploadFile(ctx context.Context, objectKey string, data []byte, customMetadata string, hash string) error {
 	bodyReader := bytes.NewReader(data)
 	input := &s3.PutObjectInput{
 		Bucket:   aws.String(s.BucketName),
 		Key:      aws.String(objectKey),
 		Body:     bodyReader,
-		Metadata: map[string]string{CustomMetadataHeader: customMetadata},
+		Metadata: map[string]string{CustomMetadataHeader: customMetadata, "checksum-sha256": hash},
 	}
 	_, err := s.S3Client.PutObject(ctx, input)
 	return err

@@ -10,6 +10,7 @@ type SimpleUploadJob struct {
 	ObjectKey string
 	Data      []byte
 	Metadata  string
+	Hash      string
 }
 
 type SimpleUpload struct {
@@ -40,7 +41,7 @@ func (s *SimpleUpload) BootWorkers(ctx context.Context, numWorkers int) {
 			for job := range s.jobChan {
 				slog.Debug("Uploading object", "workerID", workerID, "objectKey", job.ObjectKey)
 				s.semaphore <- struct{}{}
-				err := s.DB.UploadFile(ctx, job.ObjectKey, job.Data, job.Metadata)
+				err := s.DB.UploadFile(ctx, job.ObjectKey, job.Data, job.Metadata, job.Hash)
 				<-s.semaphore
 				if err != nil {
 					s.errChan <- err
@@ -52,7 +53,7 @@ func (s *SimpleUpload) BootWorkers(ctx context.Context, numWorkers int) {
 	}
 }
 
-func (s *SimpleUpload) DispatchUpload(ctx context.Context, objectKey string, data []byte, customMetadata string) error {
+func (s *SimpleUpload) DispatchUpload(ctx context.Context, objectKey string, data []byte, customMetadata string, hash string) error {
 	select {
 	case err := <-s.errChan:
 		return err
@@ -63,6 +64,7 @@ func (s *SimpleUpload) DispatchUpload(ctx context.Context, objectKey string, dat
 		ObjectKey: objectKey,
 		Data:      data,
 		Metadata:  customMetadata,
+		Hash:      hash,
 	}
 	return nil
 }
