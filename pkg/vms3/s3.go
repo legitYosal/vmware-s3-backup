@@ -265,6 +265,9 @@ func (db *S3DB) GetVirtualObjectDiskManifest(ctx context.Context, manifestObject
 	if err != nil {
 		return nil, err
 	}
+	if data == nil {
+		return nil, nil
+	}
 	var diskManifest DiskManifest
 	err = json.Unmarshal(data, &diskManifest)
 	if err != nil {
