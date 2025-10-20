@@ -21,11 +21,12 @@ var validateBackups = &cobra.Command{
 		if err != nil {
 			return fmt.Errorf("failed to get disk manifest: %w", err)
 		}
-		diskManifest.ValidateOnS3(cmd.Context(), cli.S3DB)
-		if err != nil {
-			return fmt.Errorf("failed to validate disk manifest: %w", err)
+		validated, _ := diskManifest.ValidateOnS3(cmd.Context(), cli.S3DB)
+		if validated {
+			slog.Info("Disk manifest validated successfully")
+		} else {
+			slog.Error("Disk manifest validation failed")
 		}
-		slog.Info("Disk manifest validated successfully")
 		return nil
 	},
 }
