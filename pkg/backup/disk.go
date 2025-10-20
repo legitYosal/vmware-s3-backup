@@ -92,6 +92,12 @@ func (d *DiskTarget) NeedsFullCopy(ctx context.Context, diskManifest *vms3.DiskM
 		return true, nil
 	}
 
+	validated, _ := diskManifest.ValidateOnS3(ctx, d.VM.S3BackupClient.S3DB)
+	if !validated {
+		slog.Warn("Disk manifest is not valid, a partial failed copy was performed, starting a new full copy")
+		return true, nil
+	}
+
 	oldChangeID, err := diskManifest.GetChangeID()
 	if err != nil {
 		return true, err

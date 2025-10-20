@@ -26,6 +26,7 @@ var validateBackups = &cobra.Command{
 			slog.Info("Disk manifest validated successfully")
 		} else {
 			slog.Error("Disk manifest validation failed")
+			return fmt.Errorf("disk manifest validation failed")
 		}
 		return nil
 	},
