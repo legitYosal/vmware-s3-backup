@@ -120,19 +120,23 @@ func (c *DetailedVirtualMachine) CreateBackupSnapshot(ctx context.Context) error
 	slog.Debug("Creating backup snapshot", "vmName", c.Properties.Name)
 	task, err := c.Ref.CreateSnapshot(ctx, TempBackupSnapshotName, "Ephemeral snapshot for migration", false, false)
 	if err != nil {
+		slog.Error("Failed to create backup snapshot", "error", err)
 		return err
 	}
 	info, err := task.WaitForResult(ctx) // NOTE: you can pass a progress channel here
 	if err != nil {
+		slog.Error("Failed to wait for snapshot creation", "error", err)
 		return err
 	}
 	ref, ok := info.Result.(types.ManagedObjectReference)
 	if !ok {
+		slog.Error("Failed to get snapshot reference", "result", info.Result)
 		return fmt.Errorf("failed to create snapshot: %v", info.Result)
 	}
 	var properties mo.VirtualMachineSnapshot
 	err = c.Ref.Properties(ctx, ref, []string{"config.hardware"}, &properties)
 	if err != nil {
+		slog.Error("Failed to get snapshot properties", "error", err)
 		return err
 	}
 	c.SnapshotRef = &DetailedSnapshot{
