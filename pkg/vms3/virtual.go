@@ -8,6 +8,9 @@ import (
 	"io"
 	"log/slog"
 	"os"
+	"sync"
+	"sync/atomic"
+	"time"
 
 	"github.com/klauspost/compress/zstd"
 	"github.com/legitYosal/vmware-s3-backup/pkg/vmware"
@@ -38,6 +41,71 @@ func (d *DiskManifest) CleanUpS3(ctx context.Context, s3DB *S3DB) error {
 		return fmt.Errorf("failed to delete objects from s3: %w", err)
 	}
 	return nil
+}
+
+func (d *DiskManifest) MatchChecksum(ctx context.Context, chunk *S3FullChunkMetadata, s3DB *S3DB) error {
+	const maxRetries = 3
+	key := GetS3FullObjectKey(d.ObjectKey, chunk.PartNumber)
+	for attempt := 0; attempt < maxRetries; attempt++ {
+		chk, err := s3DB.GetObjectChecksum(ctx, key)
+		if err != nil {
+			slog.Error("Error fetching head request for object", "objectKey", key)
+			select {
+			case <-ctx.Done():
+				return ctx.Err() // Context cancelled
+			case <-time.After(time.Duration(attempt+1) * time.Second):
+			}
+			continue
+		}
+		if chk != chunk.Checksum {
+			return fmt.Errorf("checksum mismatch for chunk %d: expected %s, got %s", chunk.PartNumber, chunk.Checksum, chk)
+		}
+		return nil
+	}
+	return fmt.Errorf("failed to get object checksum after %d attempts", maxRetries)
+}
+
+func (d *DiskManifest) ValidateOnS3(ctx context.Context, s3DB *S3DB) (bool, error) {
+	/*
+		it will iterate on the manifest FullChunksMetadata and for each chunk
+		which is not sparse, it will send a head request and get the checksum in the
+		checksum-sha256 header and compare it to the Checksum in the manifest for that chunk
+	*/
+	semaphore := make(chan struct{}, 16)
+	var wg sync.WaitGroup
+	var validationFailed atomic.Bool
+
+	for _, chunk := range d.FullChunksMetadata {
+		if chunk.Compression == S3CompressionSparse || chunk.Checksum == "" {
+			continue
+		}
+		if validationFailed.Load() {
+			break
+		}
+		select {
+		case <-ctx.Done():
+			return false, ctx.Err()
+		case semaphore <- struct{}{}:
+			// Acquired slot, proceed.
+		}
+		wg.Add(1)
+		go func(chunk *S3FullChunkMetadata) {
+			defer wg.Done()
+
+			// Release slot
+			defer func() { <-semaphore }()
+
+			if err := d.MatchChecksum(ctx, chunk, s3DB); err != nil {
+				validationFailed.Store(true)
+				slog.Error("Checksum mismatch for chunk", "chunk", chunk, "error", err)
+			}
+		}(chunk)
+	}
+	wg.Wait()
+	if validationFailed.Load() {
+		return false, nil
+	}
+	return true, nil
 }
 
 const S3FullObjectPartsKeyPrefix = "full"

@@ -34,6 +34,7 @@ const ObjectKeyPrefix = "vm-data"
 const DiskObjectKeyPrefix = "disk-data"
 const MetadataObjectKeyPrefix = "metadata-data"
 const CustomMetadataHeader = "custom-metadata"
+const ChecksumHeader = "checksum-sha256"
 
 func CreateS3Client(ctx context.Context, s3URL string, s3AccessKey string, s3SecretKey string, s3Region string, bucketName string) (*S3DB, error) {
 	cfg, err := S3Config.LoadDefaultConfig(ctx,
@@ -135,7 +136,44 @@ func (s *S3DB) GetMetadataInObject(ctx context.Context, objectKey string) (strin
 
 	// S3 returns User-Defined Metadata with the 'x-amz-meta-' prefix removed
 	// and keys converted to lowercase.
-	return headObjectOutput.Metadata[CustomMetadataHeader], nil
+	m, ok := headObjectOutput.Metadata[CustomMetadataHeader]
+	if !ok {
+		return "", fmt.Errorf("custom metadata header not found in the object %s in bucket %s", objectKey, s.BucketName)
+	}
+	return m, nil
+}
+
+func (s *S3DB) GetObjectChecksum(ctx context.Context, objectKey string) (string, error) {
+	headObjectInput := &s3.HeadObjectInput{
+		Bucket: aws.String(s.BucketName),
+		Key:    aws.String(objectKey),
+	}
+
+	headObjectOutput, err := s.S3Client.HeadObject(ctx, headObjectInput)
+	if err != nil {
+		var nsk *types.NoSuchKey
+		if errors.As(err, &nsk) {
+			slog.Debug("No such key found", "bucketName", s.BucketName, "objectKey", objectKey)
+			return "", nil
+		}
+		var respErr interface{ HTTPStatusCode() int } // Interface to access the status code
+		if errors.As(err, &respErr) {
+			if respErr.HTTPStatusCode() == http.StatusNotFound { // http.StatusNotFound is 404
+				slog.Debug("S3 object not found via HTTP 404 check", "bucketName", s.BucketName, "objectKey", objectKey)
+				return "", nil
+			}
+		}
+		slog.Error("Error getting metadata from S3 object", "bucketName", s.BucketName, "objectKey", objectKey, "error", err)
+		return "", fmt.Errorf("failed to get metadata for object %s in bucket %s: %w", objectKey, s.BucketName, err)
+	}
+	m, ok := headObjectOutput.Metadata[ChecksumHeader]
+	if !ok {
+		return "", fmt.Errorf("checksum header not found in the object %s in bucket %s", objectKey, s.BucketName)
+	}
+	if len(m) == 0 {
+		return "", fmt.Errorf("checksum header is empty in the object %s in bucket %s", objectKey, s.BucketName)
+	}
+	return m, nil
 }
 
 func (s *S3DB) UploadFile(ctx context.Context, objectKey string, data []byte, customMetadata string, hash string) error {
@@ -144,7 +182,7 @@ func (s *S3DB) UploadFile(ctx context.Context, objectKey string, data []byte, cu
 		Bucket:   aws.String(s.BucketName),
 		Key:      aws.String(objectKey),
 		Body:     bodyReader,
-		Metadata: map[string]string{CustomMetadataHeader: customMetadata, "checksum-sha256": hash},
+		Metadata: map[string]string{CustomMetadataHeader: customMetadata, ChecksumHeader: hash},
 	}
 	_, err := s.S3Client.PutObject(ctx, input)
 	return err
