@@ -275,3 +275,72 @@ func (db *S3DB) GetVirtualObjectDiskManifest(ctx context.Context, manifestObject
 	}
 	return &diskManifest, nil
 }
+
+func (db *S3DB) DeleteObject(ctx context.Context, objectKey string) error {
+	input := &s3.DeleteObjectInput{
+		Bucket: aws.String(db.BucketName),
+		Key:    aws.String(objectKey),
+	}
+	_, err := db.S3Client.DeleteObject(ctx, input)
+	if err != nil {
+		var nsk *types.NoSuchKey
+		if errors.As(err, &nsk) {
+			slog.Debug("No such key found", "bucketName", db.BucketName, "objectKey", objectKey)
+			return nil
+		}
+		var respErr interface{ HTTPStatusCode() int } // Interface to access the status code
+		if errors.As(err, &respErr) {
+			if respErr.HTTPStatusCode() == http.StatusNotFound { // http.StatusNotFound is 404
+				slog.Debug("S3 object not found via HTTP 404 check", "bucketName", db.BucketName, "objectKey", objectKey)
+				return nil
+			}
+		}
+		slog.Error("Error deleting object from S3 bucket", "bucketName", db.BucketName, "objectKey", objectKey, "error", err)
+		return fmt.Errorf("failed to delete object %s from bucket %s: %w", objectKey, db.BucketName, err)
+	}
+	return nil
+}
+
+func (db *S3DB) DeleteRecursively(ctx context.Context, objectKeyPrefix string) error {
+	paginator := s3.NewListObjectsV2Paginator(db.S3Client, &s3.ListObjectsV2Input{
+		Bucket: aws.String(db.BucketName),
+		Prefix: aws.String(objectKeyPrefix),
+	})
+	for paginator.HasMorePages() {
+		page, err := paginator.NextPage(ctx)
+		if err != nil {
+			return fmt.Errorf("failed to get page of objects: %w", err)
+		}
+		if len(page.Contents) == 0 {
+			slog.Debug("No more objects found for deletion.", "objectKeyPrefix", objectKeyPrefix)
+			break // No objects found in this page
+		}
+		objectsToDelete := make([]types.ObjectIdentifier, 0, len(page.Contents))
+		for _, object := range page.Contents {
+			objectsToDelete = append(objectsToDelete, types.ObjectIdentifier{
+				Key: object.Key,
+			})
+		}
+		deleteInput := &s3.DeleteObjectsInput{
+			Bucket: aws.String(db.BucketName),
+			Delete: &types.Delete{
+				Objects: objectsToDelete,
+				Quiet:   aws.Bool(false), // Set to false to see detailed errors/deletions
+			},
+		}
+		output, err := db.S3Client.DeleteObjects(ctx, deleteInput)
+		if err != nil {
+			return fmt.Errorf("failed to delete objects: %w", err)
+		}
+		if len(output.Errors) > 0 {
+			for _, deleteError := range output.Errors {
+				slog.Error("Error deleting object %q: Code: %s, Message: %s\n",
+					"objectKey", aws.ToString(deleteError.Key),
+					"code", aws.ToString(deleteError.Code),
+					"message", aws.ToString(deleteError.Message))
+			}
+			return fmt.Errorf("some objects failed to delete in the batch")
+		}
+	}
+	return nil
+}

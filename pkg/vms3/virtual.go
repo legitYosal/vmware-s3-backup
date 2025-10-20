@@ -32,6 +32,14 @@ func (d *DiskManifest) GetChangeID() (*vmware.ChangeID, error) {
 	return changeID, nil
 }
 
+func (d *DiskManifest) CleanUpS3(ctx context.Context, s3DB *S3DB) error {
+	err := s3DB.DeleteRecursively(ctx, d.ObjectKey)
+	if err != nil {
+		return fmt.Errorf("failed to delete objects from s3: %w", err)
+	}
+	return nil
+}
+
 const S3FullObjectPartsKeyPrefix = "full"
 
 func GetS3FullObjectKey(prefixKey string, partNumber int32) string {

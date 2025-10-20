@@ -15,6 +15,7 @@ import (
 	"github.com/legitYosal/vmware-s3-backup/pkg/nbdkit"
 	"github.com/legitYosal/vmware-s3-backup/pkg/vms3"
 	"github.com/legitYosal/vmware-s3-backup/pkg/vmware"
+	"github.com/vmware/govmomi/vim25/methods"
 	"github.com/vmware/govmomi/vim25/types"
 	"libguestfs.org/libnbd"
 )
@@ -33,10 +34,8 @@ type DiskTarget struct {
 // these can be of two types of multipart copy or upload
 type DiskSector struct {
 	StartOffset int64
+	EndOffset   int64
 	Length      int64
-	PartNumber  int32
-	Type        vms3.PartUploadType
-	Squashed    bool
 }
 
 func NewDiskTarget(disk *types.VirtualDisk, socketRef *nbdkit.NbdkitSocket, vm *DetailedVirtualMachine, vmKey string) (*DiskTarget, error) {
@@ -111,6 +110,11 @@ func (d *DiskTarget) NeedsFullCopy(ctx context.Context, diskManifest *vms3.DiskM
 		slog.Warn("Change ID mismatch", "oldChangeID", oldChangeID, "snapshotChangeID", snapshotChangeID)
 		return true, nil
 	}
+	if diskManifest.SizeBytes != d.GetDiskSizeBytes() {
+		slog.Warn("Size mismatch vm is resized or replaced", "oldSize", diskManifest.SizeBytes, "newSize", d.GetDiskSizeBytes())
+		return true, nil
+	}
+
 	slog.Debug("Does not need full copy", "oldChangeID", oldChangeID)
 	return false, nil
 }
@@ -134,35 +138,24 @@ func (d *DiskTarget) StartSync(ctx context.Context) error {
 		os.Exit(1)
 	}()
 
-	// // Create multipart upload
-	// currentMetadata := d.GetCurrentDiskManifest()
-	// metadataJSON, err := json.Marshal(currentMetadata)
-	// if err != nil {
-	// 	return fmt.Errorf("failed to marshal disk metadata: %w", err)
-	// }
-
 	su := vms3.NewSimpleUpload(
 		d.VM.S3BackupClient.S3DB,
 	)
 	su.BootWorkers(ctx, 4)
 
-	// // Boot workers (4 workers by default)
-	// su.DispatchUpload(ctx, d.GetDiskObjectKey(), metadataJSON, string(metadataJSON))
-
 	if needFullCopy {
+		if diskManifest != nil {
+			err := diskManifest.CleanUpS3(ctx, d.VM.S3BackupClient.S3DB)
+			if err != nil {
+				return fmt.Errorf("failed to clean up old disk manifest from s3: %w", err)
+			}
+		}
 		err := d.FullCopy(ctx, su)
 		if err != nil {
 			return err
 		}
 	} else {
-		// oldChangeID, err := diskManifest.GetChangeID()
-		// if err != nil {
-		// 	return err
-		// }
-		// err = d.IncrementalCopyDetection(ctx, su, oldChangeID)
-		// if err != nil {
-		// 	return err
-		// }
+		err = d.IncrementalCopy(ctx, su, diskManifest)
 	}
 
 	// Wait for all workers to finish
@@ -279,6 +272,164 @@ func (d *DiskTarget) FullCopy(ctx context.Context, su *vms3.SimpleUpload) error 
 		return fmt.Errorf("failed to dispatch upload for manifest file: %w", err)
 	}
 	slog.Info("Full copy to S3 completed", "diskKey", d.GetDiskKey(), "totalParts", partNumber-1)
+	return nil
+}
+
+func (d *DiskTarget) IncrementalCopy(ctx context.Context, su *vms3.SimpleUpload, oldManifest *vms3.DiskManifest) error {
+	slog.Info("Starting incremental copy", "diskKey", d.GetDiskKey(), "oldManifest", oldManifest.ChangeID)
+	startOffset := int64(0)
+	var changedSectors []*DiskSector
+	for {
+		req := types.QueryChangedDiskAreas{
+			This:        d.VM.Ref.Reference(),
+			Snapshot:    d.VM.SnapshotRef.Ref,
+			DeviceKey:   d.Disk.Key,
+			StartOffset: startOffset,
+			ChangeId:    oldManifest.ChangeID,
+		}
+		res, err := methods.QueryChangedDiskAreas(ctx, d.VM.Ref.Client(), &req)
+		if err != nil {
+			return err
+		}
+		diskChangeInfo := res.Returnval
+		for _, area := range diskChangeInfo.ChangedArea {
+			changedSectors = append(changedSectors, &DiskSector{
+				StartOffset: area.Start,
+				Length:      area.Length,
+				EndOffset:   area.Start + area.Length,
+			})
+		}
+		startOffset = diskChangeInfo.StartOffset + diskChangeInfo.Length
+
+		if startOffset >= d.Disk.CapacityInBytes {
+			break
+		}
+	}
+
+	handle, err := libnbd.Create()
+	if err != nil {
+		return err
+	}
+	defer handle.Close()
+
+	err = handle.ConnectUri(d.SocketRef.LibNBDExportName())
+	if err != nil {
+		return err
+	}
+
+	var partNumber int32 = 1
+	for offset := int64(0); offset < d.Disk.CapacityInBytes; {
+		chunkSize := int64(MaxChunkSize)
+		if (d.Disk.CapacityInBytes - offset) < chunkSize {
+			chunkSize = d.Disk.CapacityInBytes - offset
+		}
+		// check if this chunk is in the changed sectors or not
+		isChanged := false
+		for _, sector := range changedSectors {
+			if sector.StartOffset < offset+chunkSize && sector.EndOffset > offset {
+				isChanged = true
+				break
+			}
+		}
+		if !isChanged {
+			// do not change anything on the s3 and continue
+			partNumber++
+			offset += chunkSize
+			continue
+		}
+		buf := make([]byte, chunkSize)
+		err = handle.Pread(buf, uint64(offset), nil)
+		if err != nil {
+			return fmt.Errorf("failed to read from nbd at offset %d: %w", offset, err)
+		}
+		isAllZeros := isChunkAllZeros(buf)
+
+		if partNumber > int32(len(oldManifest.FullChunksMetadata)) {
+			// this is a new part not existing before
+			if isAllZeros {
+				oldManifest.FullChunksMetadata = append(
+					oldManifest.FullChunksMetadata,
+					&vms3.S3FullChunkMetadata{
+						StartOffset: offset,
+						Length:      chunkSize,
+						PartNumber:  partNumber,
+						Compression: vms3.S3CompressionSparse,
+						Checksum:    "",
+					},
+				)
+				slog.Debug("Added new sparse part to manifest", "partNumber", partNumber, "startOffset", offset, "length", chunkSize)
+				oldManifest.NumberOfSparseParts++
+			} else {
+				buf, err = vms3.CompressBufferZstd(buf)
+				if err != nil {
+					return fmt.Errorf("failed to compress buffer: %w", err)
+				}
+				metadata := &vms3.S3FullChunkMetadata{
+					StartOffset: offset,
+					Length:      chunkSize,
+					PartNumber:  partNumber,
+					Compression: vms3.S3CompressionZstd,
+					Checksum:    calculateSHA256(buf),
+				}
+				metadataJSON, err := metadata.ToJSON()
+				if err != nil {
+					return fmt.Errorf("failed to marshal S3 full chunk metadata: %w", err)
+				}
+				if err := su.DispatchUpload(ctx, vms3.GetS3FullObjectKey(oldManifest.ObjectKey, partNumber), buf, metadataJSON, metadata.Checksum); err != nil {
+					return fmt.Errorf("failed to dispatch upload: %w", err)
+				}
+				oldManifest.FullChunksMetadata = append(oldManifest.FullChunksMetadata, metadata)
+			}
+		} else {
+			previousMetadata := oldManifest.FullChunksMetadata[partNumber-1]
+			if isAllZeros {
+				if previousMetadata.Compression == vms3.S3CompressionSparse {
+					// do nothing
+				} else {
+					previousMetadata.Compression = vms3.S3CompressionSparse
+					previousMetadata.Checksum = ""
+					previousMetadata.Length = chunkSize
+					oldManifest.NumberOfSparseParts++
+					// i should delete the previous part from the s3
+					// NOTE later put this on the worker too
+					err := d.VM.S3BackupClient.S3DB.DeleteObject(ctx, vms3.GetS3FullObjectKey(oldManifest.ObjectKey, partNumber))
+					if err != nil {
+						return fmt.Errorf("failed to delete object from s3: %w", err)
+					}
+				}
+			} else {
+				if previousMetadata.Compression == vms3.S3CompressionSparse {
+					oldManifest.NumberOfSparseParts--
+				}
+				buf, err = vms3.CompressBufferZstd(buf)
+				if err != nil {
+					return fmt.Errorf("failed to compress buffer: %w", err)
+				}
+				previousMetadata.Compression = vms3.S3CompressionZstd
+				previousMetadata.Checksum = calculateSHA256(buf)
+				previousMetadata.Length = chunkSize
+				metadataJSON, err := previousMetadata.ToJSON()
+				if err != nil {
+					return fmt.Errorf("failed to marshal S3 full chunk metadata: %w", err)
+				}
+				if err := su.DispatchUpload(ctx, vms3.GetS3FullObjectKey(oldManifest.ObjectKey, partNumber), buf, metadataJSON, previousMetadata.Checksum); err != nil {
+					return fmt.Errorf("failed to dispatch upload: %w", err)
+				}
+			}
+		}
+		offset += chunkSize
+		partNumber++
+	}
+	oldManifest.ChangeID = d.CurrentChangeID.Value
+	oldManifest.SizeBytes = d.Disk.CapacityInBytes
+	metadataJSON, err := json.Marshal(oldManifest)
+	if err != nil {
+		return fmt.Errorf("failed to marshal disk metadata: %w", err)
+	}
+	if err := su.DispatchUpload(ctx, vms3.GetDiskManifestObjectKey(oldManifest.ObjectKey), metadataJSON, "", calculateSHA256(metadataJSON)); err != nil {
+		return fmt.Errorf("failed to dispatch upload for manifest file: %w", err)
+	}
+	slog.Info("Incremental copy to S3 completed", "diskKey", d.GetDiskKey(), "totalParts", partNumber-1)
 	return nil
 }
 
