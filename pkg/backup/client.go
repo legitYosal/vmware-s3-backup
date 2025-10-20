@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"log/slog"
 	"net/url"
+	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
@@ -17,6 +19,8 @@ import (
 	"github.com/vmware/govmomi/property"
 	"github.com/vmware/govmomi/session"
 	"github.com/vmware/govmomi/session/keepalive"
+	"github.com/vmware/govmomi/vapi/library"
+	"github.com/vmware/govmomi/vapi/rest"
 	"github.com/vmware/govmomi/vim25"
 	"github.com/vmware/govmomi/vim25/mo"
 	"github.com/vmware/govmomi/vim25/soap"
@@ -95,7 +99,7 @@ func (c *VmwareS3BackupClient) ConnectToVMware(ctx context.Context) error {
 	soapClient := soap.NewClient(endpointURL, true)
 	vimClient, err := vim25.NewClient(ctx, soapClient)
 	if err != nil {
-		return fmt.Errorf("failed to create VMware client: %w", err)
+		return fmt.Errorf("failed to create VMware vim client: %w", err)
 	}
 
 	vimClient.RoundTripper = keepalive.NewHandlerSOAP(
@@ -352,4 +356,27 @@ func (c *VmwareS3BackupClient) DetailedListVMs(ctx context.Context) ([]VMData, e
 
 	slog.Debug("Successfully listed and collected properties for VMs", "count", len(vmData))
 	return vmData, nil
+}
+
+func (c *VmwareS3BackupClient) RestoreDisk(ctx context.Context, diskLocalPath, remotePath, dataStoreName string) error {
+	ds, err := c.VMWareFinder.Datastore(ctx, dataStoreName)
+	if err != nil {
+		return fmt.Errorf("failed to find datastore: %w", err)
+	}
+	fileName := filepath.Base(diskLocalPath)
+	remoteFullPath := fmt.Sprintf("[%s] %s/%s", ds.Name(), remotePath, fileName)
+	f, err := os.Open(diskLocalPath)
+	if err != nil {
+		return fmt.Errorf("failed to open local file %s: %w", diskLocalPath, err)
+	}
+	defer f.Close()
+	slog.Debug("Starting upload to vmware", "localPath", diskLocalPath, "remotePath", remoteFullPath)
+	restClient := rest.NewClient(c.VMWareClient)
+	dsManager := library.NewManager(restClient)
+	err = dsManager.Upload(ctx, f, &url.URL{Scheme: "https", Host: c.Configuration.VMWareHOST, Path: remoteFullPath}, nil)
+	if err != nil {
+		return fmt.Errorf("failed to upload file to vmware: %w", err)
+	}
+	slog.Debug("File uploaded to vmware successfully", "remotePath", remoteFullPath)
+	return nil
 }
