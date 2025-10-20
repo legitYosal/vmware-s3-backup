@@ -1,6 +1,8 @@
 package cmd
 
 import (
+	"fmt"
+
 	"github.com/spf13/cobra"
 )
 
@@ -16,6 +18,9 @@ var downloadBackupCmd = &cobra.Command{
 		vmList, err := cli.S3DB.ListVirtualObjectMachines(cmd.Context(), vmKey)
 		if err != nil {
 			return err
+		}
+		if len(vmList) == 0 {
+			return fmt.Errorf("VM %s not found", vmKey)
 		}
 		vm := vmList[0]
 		for _, disk := range vm.Disks {
