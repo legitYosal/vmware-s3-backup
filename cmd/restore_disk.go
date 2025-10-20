@@ -10,7 +10,7 @@ var restoreDiskCmd = &cobra.Command{
 		dataStoreName := cmd.Flag("data-store-name").Value.String()
 		localPath := cmd.Flag("local-path").Value.String()
 		remotePath := cmd.Flag("remote-path").Value.String()
-		err := cli.RestoreDisk(cmd.Context(), dataStoreName, localPath, remotePath)
+		err := cli.RestoreDisk(cmd.Context(), remotePath, localPath, dataStoreName)
 		if err != nil {
 			return err
 		}
