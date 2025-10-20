@@ -257,7 +257,7 @@ func (db *S3DB) ListVirtualObjectMachines(ctx context.Context, vmKeyFilter strin
 			vmList = append(vmList, vm)
 		}
 		diskObjectKey := strings.Split(object, "/")[1]
-		diskKey := strings.TrimPrefix(diskObjectKey, DiskObjectKeyPrefix+"-")
+		diskKey := vmKey + "-" + strings.TrimPrefix(diskObjectKey, DiskObjectKeyPrefix+"-")
 		if _, ok := diskKeyMapping[diskKey]; !ok {
 			manifestKey := GetDiskManifestObjectKey(vmObjectKey + "/" + diskObjectKey)
 			manifest, err := db.GetVirtualObjectDiskManifest(ctx, manifestKey)
