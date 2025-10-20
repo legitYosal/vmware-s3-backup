@@ -59,6 +59,7 @@ It will perform a full backup and store it in the configured S3 bucket.`,
 		}
 		if snapshotRef != nil {
 			if consolidate {
+				slog.Debug("Consolidating dangling snapshot", "snapshotRef", snapshotRef)
 				err = vm.ConsolidateDanglingSnapshot(cmd.Context(), snapshotRef)
 				if err != nil {
 					slog.Error("Error consolidating snapshot", "error", err)
