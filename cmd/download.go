@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"fmt"
+	"log/slog"
 
 	"github.com/legitYosal/vmware-s3-backup/pkg/vms3"
 	"github.com/spf13/cobra"
@@ -26,6 +27,7 @@ var downloadBackupCmd = &cobra.Command{
 		vm := vmList[0]
 		var vmDisk *vms3.VirtualObjectDisk
 		for _, disk := range vm.Disks {
+			slog.Debug("checking disk", "disk", disk.DiskKey)
 			if disk.DiskKey == diskKey {
 				vmDisk = disk
 				break
