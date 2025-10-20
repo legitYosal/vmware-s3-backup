@@ -283,14 +283,12 @@ func (db *S3DB) ListVirtualObjectMachines(ctx context.Context, vmKeyFilter strin
 		}
 	}
 	for _, vm := range vmList {
-		slog.Debug("checking vm", "vm", vm)
 		if len(vm.Disks) == 0 {
 			slog.Error("no disks found for vm %s", "vmKey", vm.VMKey)
 			return nil, fmt.Errorf("no disks found for vm %s", vm.VMKey)
 		}
 		vm.RootDiskKey = vm.Disks[0].ObjectKey // NOTE THIS IS NOT SAFE AND I DO NOT KNOW HOW TO FIND IT REALLY RIGHT NOW
 		for _, disk := range vm.Disks {
-			slog.Debug("checking disk", "disk", disk)
 			if len(disk.PartKeys) != (len(disk.Manifest.FullChunksMetadata) - disk.Manifest.NumberOfSparseParts) {
 				slog.Error("number of full parts in the manifest does not match the number of parts in the s3, conflicting data for vm %s and disk %s", vm.VMKey, disk.DiskKey)
 				return nil, fmt.Errorf("number of full parts in the manifest does not match the number of parts in the s3, conflicting data for vm %s and disk %s", vm.VMKey, disk.DiskKey)

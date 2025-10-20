@@ -3,6 +3,7 @@ package cmd
 import (
 	"fmt"
 
+	"github.com/legitYosal/vmware-s3-backup/pkg/vms3"
 	"github.com/spf13/cobra"
 )
 
@@ -23,13 +24,19 @@ var downloadBackupCmd = &cobra.Command{
 			return fmt.Errorf("VM %s not found", vmKey)
 		}
 		vm := vmList[0]
+		var vmDisk *vms3.VirtualObjectDisk
 		for _, disk := range vm.Disks {
 			if disk.DiskKey == diskKey {
-				err = disk.RestoreDiskToLocalPath(cmd.Context(), cli.S3DB, localPath)
-				if err != nil {
-					return err
-				}
+				vmDisk = disk
+				break
 			}
+		}
+		if vmDisk == nil {
+			return fmt.Errorf("Disk %s not found", diskKey)
+		}
+		err = vmDisk.RestoreDiskToLocalPath(cmd.Context(), cli.S3DB, localPath)
+		if err != nil {
+			return err
 		}
 		return nil
 	},
