@@ -71,6 +71,7 @@ func (d *DiskManifest) ValidateOnS3(ctx context.Context, s3DB *S3DB) (bool, erro
 		which is not sparse, it will send a head request and get the checksum in the
 		checksum-sha256 header and compare it to the Checksum in the manifest for that chunk
 	*/
+	slog.Debug("Validating the backup started")
 	semaphore := make(chan struct{}, 16)
 	var wg sync.WaitGroup
 	var validationFailed atomic.Bool
@@ -99,6 +100,7 @@ func (d *DiskManifest) ValidateOnS3(ctx context.Context, s3DB *S3DB) (bool, erro
 				validationFailed.Store(true)
 				slog.Error("Checksum mismatch for chunk", "chunk", chunk, "error", err)
 			}
+			slog.Debug("Chunk validated successfully", "partNumber", chunk.PartNumber)
 		}(chunk)
 	}
 	wg.Wait()
