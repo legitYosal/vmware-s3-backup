@@ -257,8 +257,9 @@ func (db *S3DB) ListVirtualObjectMachines(ctx context.Context, vmKeyFilter strin
 			vmList = append(vmList, vm)
 		}
 		diskObjectKey := strings.Split(object, "/")[1]
-		diskKey := vmKey + "-" + strings.TrimPrefix(diskObjectKey, DiskObjectKeyPrefix+"-")
-		if _, ok := diskKeyMapping[diskKey]; !ok {
+		diskKey := strings.TrimPrefix(diskObjectKey, DiskObjectKeyPrefix+"-")
+		diskUniqueKey := vmKey + "-" + diskKey
+		if _, ok := diskKeyMapping[diskUniqueKey]; !ok {
 			manifestKey := GetDiskManifestObjectKey(vmObjectKey + "/" + diskObjectKey)
 			manifest, err := db.GetVirtualObjectDiskManifest(ctx, manifestKey)
 			if err != nil {
@@ -274,11 +275,11 @@ func (db *S3DB) ListVirtualObjectMachines(ctx context.Context, vmKeyFilter strin
 			}
 			vm := vmKeyMapping[vmKey]
 			vm.Disks = append(vm.Disks, disk)
-			diskKeyMapping[diskKey] = disk
+			diskKeyMapping[diskUniqueKey] = disk
 		}
 		thirdPartOfKey := strings.Split(object, "/")[2]
 		if thirdPartOfKey == S3FullObjectPartsKeyPrefix {
-			disk := diskKeyMapping[diskKey]
+			disk := diskKeyMapping[diskUniqueKey]
 			disk.PartKeys = append(disk.PartKeys, object)
 		}
 	}
