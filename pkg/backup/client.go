@@ -19,8 +19,6 @@ import (
 	"github.com/vmware/govmomi/property"
 	"github.com/vmware/govmomi/session"
 	"github.com/vmware/govmomi/session/keepalive"
-	"github.com/vmware/govmomi/vapi/library"
-	"github.com/vmware/govmomi/vapi/rest"
 	"github.com/vmware/govmomi/vim25"
 	"github.com/vmware/govmomi/vim25/mo"
 	"github.com/vmware/govmomi/vim25/soap"
@@ -364,19 +362,17 @@ func (c *VmwareS3BackupClient) RestoreDisk(ctx context.Context, diskLocalPath, r
 		return fmt.Errorf("failed to find datastore: %w", err)
 	}
 	fileName := filepath.Base(diskLocalPath)
-	remoteFullPath := fmt.Sprintf("[%s] %s/%s", ds.Name(), remotePath, fileName)
+	dsRelativePath := fmt.Sprintf("%s/%s", remotePath, fileName)
 	f, err := os.Open(diskLocalPath)
 	if err != nil {
 		return fmt.Errorf("failed to open local file %s: %w", diskLocalPath, err)
 	}
 	defer f.Close()
-	slog.Debug("Starting upload to vmware", "localPath", diskLocalPath, "remotePath", remoteFullPath)
-	restClient := rest.NewClient(c.VMWareClient)
-	dsManager := library.NewManager(restClient)
-	err = dsManager.Upload(ctx, f, &url.URL{Scheme: "https", Host: c.Configuration.VMWareHOST, Path: remoteFullPath}, nil)
+	slog.Debug("Starting upload to vmware", "localPath", diskLocalPath, "remotePath", dsRelativePath)
+	err = ds.Upload(ctx, f, dsRelativePath, nil)
 	if err != nil {
 		return fmt.Errorf("failed to upload file to vmware: %w", err)
 	}
-	slog.Debug("File uploaded to vmware successfully", "remotePath", remoteFullPath)
+	slog.Debug("File uploaded to vmware successfully", "remotePath", dsRelativePath)
 	return nil
 }
