@@ -328,6 +328,7 @@ func (d *DiskTarget) IncrementalCopy(ctx context.Context, su *vms3.SimpleUpload,
 		for _, sector := range changedSectors {
 			if sector.StartOffset < offset+chunkSize && sector.EndOffset > offset {
 				isChanged = true
+				slog.Debug("chunk has changed area", "partNumber", partNumber)
 				break
 			}
 		}
@@ -379,11 +380,13 @@ func (d *DiskTarget) IncrementalCopy(ctx context.Context, su *vms3.SimpleUpload,
 					return fmt.Errorf("failed to dispatch upload: %w", err)
 				}
 				oldManifest.FullChunksMetadata = append(oldManifest.FullChunksMetadata, metadata)
+				slog.Debug("adding new compressed chunk to manifest", "partNumber", partNumber)
 			}
 		} else {
 			previousMetadata := oldManifest.FullChunksMetadata[partNumber-1]
 			if isAllZeros {
 				if previousMetadata.Compression == vms3.S3CompressionSparse {
+					slog.Debug("sparse chunk is already sparse, nothing to do, this may not occur usually", "partNumber", partNumber)
 					// do nothing
 				} else {
 					previousMetadata.Compression = vms3.S3CompressionSparse
@@ -396,10 +399,14 @@ func (d *DiskTarget) IncrementalCopy(ctx context.Context, su *vms3.SimpleUpload,
 					if err != nil {
 						return fmt.Errorf("failed to delete object from s3: %w", err)
 					}
+					slog.Debug("part changed to sparse, updating the manifest", "partNumber", partNumber)
 				}
 			} else {
 				if previousMetadata.Compression == vms3.S3CompressionSparse {
 					oldManifest.NumberOfSparseParts--
+					slog.Debug("sparse chunk changed to compressed, updating the manifest", "partNumber", partNumber)
+				} else {
+					slog.Debug("compressed chunk changed, re-uploading again", "partNumber", partNumber)
 				}
 				buf, err = vms3.CompressBufferZstd(buf)
 				if err != nil {
