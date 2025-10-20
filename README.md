@@ -77,6 +77,12 @@ $ sudo kpartx -d $LOOP_DEVICE
 $ sudo losetup -d $LOOP_DEVICE
 ```
 
+### Upload from local to VMware
+You can upload a disk from local to VMware, also note that the exported disk data is in raw format and you have to convert it to vmdk first, next:
+```
+$ go run main.go restore-disk --data-store-name DS1 --local-path ./disk2000.vmdk --remote-path RestoredImages
+```
+
 ## How this works?
 For incremental backup, we will query vmware for the changed areas on a disk(with the latest change id we have from last incremental backup), it will respond with the offset and the length of changed area, so kaboom using Nbdkit and VDDK plugin we will read the exact length of bytes from that offset, Now we have the s3 dilemma, first I was keeping a single file on s3, for a disk, and then multi part uploading the changed areas and multi part copying the not changed areas, which had multiple problems:
 1. First of all if a changed area is less than 5MB I am forced to do a over-read and read not changed areas
