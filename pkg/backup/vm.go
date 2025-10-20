@@ -92,7 +92,12 @@ func (c *DetailedVirtualMachine) FindAndConsolidateDanglingSnapshot(ctx context.
 
 func (c *DetailedVirtualMachine) ConsolidateDanglingSnapshot(ctx context.Context, snapshotRef *types.ManagedObjectReference) error {
 	consolidate := true
-	_, err := c.Ref.RemoveSnapshot(ctx, snapshotRef.Value, false, &consolidate)
+	task, err := c.Ref.RemoveSnapshot(ctx, snapshotRef.Value, false, &consolidate)
+	if err != nil {
+		return err
+	}
+	// wait for the snapshot to be removed
+	_, err = task.WaitForResult(ctx)
 	if err != nil {
 		return err
 	}
