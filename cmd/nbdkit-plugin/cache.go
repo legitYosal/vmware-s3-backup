@@ -24,6 +24,12 @@ func NewLruCache() *LruCache {
 	}
 }
 
+func (c *LruCache) GetNumberOfParts() int32 {
+	c.mutex.RLock()
+	defer c.mutex.RUnlock()
+	return c.numberOfParts
+}
+
 func (c *LruCache) GetPart(partNumber int32) ([]byte, error) {
 	c.mutex.RLock()
 	defer c.mutex.RUnlock()
