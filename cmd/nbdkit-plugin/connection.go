@@ -2,11 +2,11 @@ package main
 
 import (
 	"fmt"
-	"log/slog"
 	"os"
 	"runtime"
 
 	"github.com/legitYosal/vmware-s3-backup/pkg/vms3"
+	"libguestfs.org/nbdkit"
 )
 
 func (c *VmwareS3BackupConnection) GetSize() (uint64, error) {
@@ -31,7 +31,7 @@ func (c *VmwareS3BackupConnection) PRead(buf []byte, offset uint64, flags uint32
 	partEnd := partStart + vms3.MaxChunkSize
 	readSize := uint64(len(buf))
 	if readSize > vms3.MaxChunkSize {
-		slog.Error("read size is greater than max chunk size", "readSize", readSize, "maxChunkSize", vms3.MaxChunkSize)
+		nbdkit.Error(fmt.Sprintf("read size is greater than max chunk size: %d > %d", readSize, vms3.MaxChunkSize))
 		return fmt.Errorf("read size is greater than max chunk size")
 	}
 	readEnd := offset + readSize
@@ -76,7 +76,7 @@ func (c *VmwareS3BackupConnection) PRead(buf []byte, offset uint64, flags uint32
 	s := string(stackBuf[:n])
 	var memStats runtime.MemStats
 	runtime.ReadMemStats(&memStats)
-	slog.Debug("***STATS", "PID", pid, "GID", s, "TMem", memStats.TotalAlloc, "HMem", memStats.HeapAlloc, "Number Goroutines", runtime.NumGoroutine())
+	nbdkit.Debug(fmt.Sprintf("***STATS: PID: %d, GID: %s, TMem: %d, HMem: %d, Number Goroutines: %d", pid, s, memStats.TotalAlloc, memStats.HeapAlloc, runtime.NumGoroutine()))
 	return nil
 }
 

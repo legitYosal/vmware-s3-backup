@@ -3,8 +3,6 @@ package main
 import (
 	"context"
 	"fmt"
-	"log/slog"
-	"os"
 
 	"github.com/legitYosal/vmware-s3-backup/pkg/vms3"
 	"libguestfs.org/nbdkit"
@@ -78,26 +76,18 @@ func (c *VmwareS3BackupPlugin) ConfigComplete() error {
 	if err != nil {
 		return fmt.Errorf("failed to create s3 client: %w", err)
 	}
-	slog.Info("S3 client created successfully")
+	nbdkit.Debug(fmt.Sprintf("S3 client created successfully"))
 	diskManifestKey := vms3.GetDiskManifestObjectKey(vms3.CreateDiskObjectKey(vmKey, diskKey))
 	diskManifest, err = s3DB.GetVirtualObjectDiskManifest(context.Background(), diskManifestKey)
 	if err != nil {
 		return fmt.Errorf("failed to get disk manifest: %w", err)
 	}
-	slog.Info("Disk manifest retrieved successfully")
+	nbdkit.Debug(fmt.Sprintf("Disk manifest retrieved successfully"))
 	size = uint64(diskManifest.SizeBytes)
 	lruCache = NewLruCache()
 	safeDownload = NewSafeDownload()
 	safeDownload.LoadPart(1)
-
-	handler := slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{
-		Level: slog.LevelDebug,
-	})
-	Log := slog.New(handler).With(
-		slog.String("app", "vmware-s3-backup"),
-	)
-	slog.SetDefault(Log)
-
-	slog.Debug("Config complete")
+	// NOTE wer are not configuring slog here therefor loosing all of pkg logs, later write a custom handler for slog
+	nbdkit.Debug(fmt.Sprintf("Config complete"))
 	return nil
 }

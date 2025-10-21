@@ -3,10 +3,10 @@ package main
 import (
 	"context"
 	"fmt"
-	"log/slog"
 	"sync"
 
 	"github.com/legitYosal/vmware-s3-backup/pkg/vms3"
+	"libguestfs.org/nbdkit"
 )
 
 type SafeDownload struct {
@@ -58,16 +58,16 @@ func (s *SafeDownload) LoadPart(partNumber int32) error {
 		if lruCache.HasPart(partNumber) {
 			lruCache.LockPart(partNumber)
 
-			slog.Debug("Cache HIT, Part is already in lru cache, skipping load from s3")
+			nbdkit.Debug(fmt.Sprintf("Cache HIT, Part is already in lru cache, skipping load from s3: %d", partNumber))
 		} else {
 			err := s.LoadPartFromS3(partNumber)
 			if err != nil {
 				return fmt.Errorf("failed to load part from s3: %w", err)
 			}
-			slog.Debug("Part loaded into lru cache", "partNumber", partNumber, "length", diskManifest.FullChunksMetadata[partNumber].Length)
+			nbdkit.Debug(fmt.Sprintf("Part loaded into lru cache: %d, length: %d", partNumber, diskManifest.FullChunksMetadata[partNumber].Length))
 		}
 	} else {
-		slog.Debug("Part is sparse, skipping load from s3")
+		nbdkit.Debug(fmt.Sprintf("Part is sparse, skipping load from s3: %d", partNumber))
 	}
 	return nil
 }
