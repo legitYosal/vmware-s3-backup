@@ -82,7 +82,7 @@ func (c *VmwareS3BackupConnection) PRead(buf []byte, offset uint64, flags uint32
 	fmt.Sscanf(s, "goroutine %d ", &gID)
 	var memStats runtime.MemStats
 	runtime.ReadMemStats(&memStats)
-	nbdkit.Debug(fmt.Sprintf("***STATS: PID: %d, GID: %d, TMem: %d, HMem: %d, GRoutine count: %d, LRU count: %d", pid, gID, memStats.TotalAlloc/1024/1024, memStats.HeapAlloc/1024/1024, runtime.NumGoroutine(), lruCache.GetNumberOfParts()))
+	nbdkit.Debug(fmt.Sprintf("***STATS: PID: %d, GID: %d, TMem: %d, HMem: %d, GRoutine count: %d, LRU count: %d, TotalDownloadMB: %d", pid, gID, memStats.TotalAlloc/1024/1024, memStats.HeapAlloc/1024/1024, runtime.NumGoroutine(), lruCache.GetNumberOfParts(), totalDownloadMB))
 	return nil
 }
 

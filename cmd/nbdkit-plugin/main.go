@@ -35,6 +35,7 @@ var numberOfParts int32
 var lruCache *LruCache
 var safeDownload *SafeDownload
 var zeroBuffer []byte
+var totalDownloadMB int64
 
 //export plugin_init
 func plugin_init() unsafe.Pointer {
