@@ -45,10 +45,13 @@ func (s *SafeDownload) LoadPart(partNumber int32) error {
 	s.locks[partNumber].Lock()
 
 	defer func() {
-		s.locks[partNumber].Unlock()
-		s.mutex.Lock()
-		delete(s.locks, partNumber)
-		s.mutex.Unlock()
+		lock, ok := s.locks[partNumber]
+		if ok {
+			lock.Unlock()
+			s.mutex.Lock()
+			delete(s.locks, partNumber)
+			s.mutex.Unlock()
+		}
 	}()
 
 	if diskManifest.FullChunksMetadata[partNumber].Compression == vms3.S3CompressionZstd {
