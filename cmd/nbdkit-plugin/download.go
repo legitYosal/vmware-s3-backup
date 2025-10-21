@@ -21,7 +21,7 @@ func (s *SafeDownload) LoadPartFromS3(partNumber int32) error {
 	partKey := vms3.GetS3FullObjectKey(diskManifest.ObjectKey, partNumber+1)
 	var err error
 	buffer, err := s3DB.GetObject(context.Background(), partKey)
-	totalDownloadMB += int64(len(buffer) / 1024 / 1024) // this will not data race as it is in a parent global lock
+	totalDownload += int64(len(buffer)) // this will not data race as it is in a parent global lock
 	if err != nil {
 		return fmt.Errorf("failed to get object: %w", err)
 	}
