@@ -1,0 +1,3 @@
+[submodule "nbdkit-repository"]
+	path = nbdkit-repository
+	url = https://gitlab.com/nbdkit/nbdkit.git

@@ -13,7 +13,10 @@ require (
 	github.com/spf13/viper v1.21.0
 	github.com/vmware/govmomi v0.52.0
 	libguestfs.org/libnbd v1.20.0
+	libguestfs.org/nbdkit v1.44.0
 )
+
+replace libguestfs.org/nbdkit v1.44.0 => ./nbdkit-repository/plugins/golang/src/libguestfs.org/nbdkit
 
 require (
 	github.com/aws/aws-sdk-go-v2/aws/protocol/eventstream v1.7.1 // indirect

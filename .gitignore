@@ -35,3 +35,6 @@ test_file_105MB.bin
 random_test_file_105MB.bin
 test_file.bin
 cmd/test.go
+
+
+bin
