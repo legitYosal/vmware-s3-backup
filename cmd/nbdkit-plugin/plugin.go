@@ -87,5 +87,6 @@ func (c *VmwareS3BackupPlugin) ConfigComplete() error {
 	size = uint64(diskManifest.SizeBytes)
 	lruCache = NewLruCache()
 	safeDownload = NewSafeDownload()
+	safeDownload.LoadPart(1)
 	return nil
 }
