@@ -24,7 +24,7 @@ func IsData(partNumber int32) bool {
 }
 
 func (c *VmwareS3BackupConnection) PRead(buf []byte, offset uint64, flags uint32) error {
-	partNumber := int32(offset/vms3.MaxChunkSize) + 1
+	partNumber := int32(offset / vms3.MaxChunkSize)
 	partStart := uint64(partNumber) * vms3.MaxChunkSize
 	partEnd := partStart + vms3.MaxChunkSize
 	readSize := uint64(len(buf))

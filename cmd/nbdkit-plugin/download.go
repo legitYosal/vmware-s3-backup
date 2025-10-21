@@ -21,7 +21,7 @@ func NewSafeDownload() *SafeDownload {
 }
 
 func (s *SafeDownload) LoadPartFromS3(partNumber int32) error {
-	partKey := vms3.GetS3FullObjectKey(diskManifest.ObjectKey, partNumber)
+	partKey := vms3.GetS3FullObjectKey(diskManifest.ObjectKey, partNumber+1)
 	partData, err := s3DB.GetObject(context.Background(), partKey)
 	if err != nil {
 		return fmt.Errorf("failed to get object: %w", err)
