@@ -30,6 +30,7 @@ func NewS3DB(s3Client *s3.Client, bucketName string) *S3DB {
 	}
 }
 
+const MaxChunkSize = uint64(64 * 1024 * 1024) // 64 MB
 const ObjectKeyPrefix = "vm-data"
 const DiskObjectKeyPrefix = "disk-data"
 const MetadataObjectKeyPrefix = "metadata-data"

@@ -6,6 +6,9 @@ import (
 
 	"libguestfs.org/nbdkit"
 )
+import (
+	"github.com/legitYosal/vmware-s3-backup/pkg/vms3"
+)
 
 var pluginName = "vmware-s3-backup"
 
@@ -17,24 +20,22 @@ type VmwareS3BackupConnection struct {
 	nbdkit.Connection
 }
 
-var size uint64 = 1024 * 1024
+var size uint64
+var s3Url string
+var s3SecretKey string
+var s3AccessKey string
+var s3Region string
+var s3BucketName string
+var vmKey string
+var diskKey string
 
-func (p *VmwareS3BackupPlugin) Open(readonly bool) (nbdkit.ConnectionInterface, error) {
-	return &VmwareS3BackupConnection{}, nil
-}
+var s3DB *vms3.S3DB
+var diskManifest *vms3.DiskManifest
+var numberOfParts int32
+var lruCache *LruCache
+var safeDownload *SafeDownload
 
-func (c *VmwareS3BackupConnection) GetSize() (uint64, error) {
-	return size, nil
-}
-
-func (c *VmwareS3BackupConnection) PRead(buf []byte, offset uint64,
-	flags uint32) error {
-	for i := 0; i < len(buf); i++ {
-		buf[i] = 0
-	}
-	return nil
-}
-
+//export plugin_init
 func plugin_init() unsafe.Pointer {
 	// If your plugin needs to do any initialization, you can
 	// either put it here or implement a Load() method.
