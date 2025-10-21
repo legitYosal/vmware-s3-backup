@@ -1,17 +1,16 @@
-package cmd
+package commands
 
 import (
 	"fmt"
-	"log/slog"
 
 	"github.com/legitYosal/vmware-s3-backup/pkg/vms3"
 	"github.com/spf13/cobra"
 )
 
-var validateBackups = &cobra.Command{
-	Use:   "validate-backup <VM_KEY> <DISK_KEY>",
-	Short: "Validate backup",
-	Long:  "Validate backup",
+var deleteBackup = &cobra.Command{
+	Use:   "delete-backup <VM_KEY> <DISK_KEY>",
+	Short: "Delete a backup",
+	Long:  "Delete a backup",
 	Args:  cobra.ExactArgs(2),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		vmKey := args[0]
@@ -21,17 +20,14 @@ var validateBackups = &cobra.Command{
 		if err != nil {
 			return fmt.Errorf("failed to get disk manifest: %w", err)
 		}
-		validated, _ := diskManifest.ValidateOnS3(cmd.Context(), cli.S3DB)
-		if validated {
-			slog.Info("Disk manifest validated successfully")
-		} else {
-			slog.Error("Disk manifest validation failed")
-			return fmt.Errorf("disk manifest validation failed")
+		err = diskManifest.CleanUpS3(cmd.Context(), cli.S3DB)
+		if err != nil {
+			return err
 		}
 		return nil
 	},
 }
 
 func init() {
-	rootCmd.AddCommand(validateBackups)
+	rootCmd.AddCommand(deleteBackup)
 }

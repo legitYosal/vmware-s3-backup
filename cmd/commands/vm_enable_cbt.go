@@ -1,4 +1,4 @@
-package cmd
+package commands
 
 import (
 	"log/slog"
@@ -42,5 +42,5 @@ var vmEnableCbtCmd = &cobra.Command{
 }
 
 func init() {
-	vmCmd.AddCommand(vmEnableCbtCmd)
+	rootCmd.AddCommand(vmEnableCbtCmd)
 }

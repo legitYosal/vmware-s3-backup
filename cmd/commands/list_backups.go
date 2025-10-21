@@ -1,4 +1,4 @@
-package cmd
+package commands
 
 import (
 	"fmt"
@@ -7,7 +7,7 @@ import (
 )
 
 var listBackupsCmd = &cobra.Command{
-	Use:   "backups",
+	Use:   "list-backups",
 	Short: "Lists all available backups",
 	Long:  `Lists all available backups from the S3 bucket`,
 	RunE: func(cmd *cobra.Command, args []string) error {
@@ -21,5 +21,5 @@ var listBackupsCmd = &cobra.Command{
 }
 
 func init() {
-	listCmd.AddCommand(listBackupsCmd)
+	rootCmd.AddCommand(listBackupsCmd)
 }

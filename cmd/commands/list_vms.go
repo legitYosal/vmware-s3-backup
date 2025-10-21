@@ -1,4 +1,4 @@
-package cmd
+package commands
 
 import (
 	"fmt"
@@ -15,7 +15,7 @@ type smallVMData struct {
 
 // listVmsCmd represents the 'list vms' command
 var listVmsCmd = &cobra.Command{
-	Use:   "vms",
+	Use:   "list-vms",
 	Short: "Lists all available virtual machines with detailed information",
 	Long:  `Connects to the specified VMware vCenter or ESXi host and retrieves a detailed list of all virtual machines including status, memory, CPUs, and disks.`,
 	RunE: func(cmd *cobra.Command, args []string) error {
@@ -52,6 +52,5 @@ var listVmsCmd = &cobra.Command{
 
 func init() {
 	// Add the 'vms' command as a subcommand of the 'list' command.
-	listCmd.AddCommand(listVmsCmd)
-	listVmsCmd.Flags().BoolP("detailed", "d", false, "Include extensive configuration and disk details for each VM.")
+	rootCmd.Flags().BoolP("detailed", "d", false, "Include extensive configuration and disk details for each VM.")
 }

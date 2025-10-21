@@ -1,4 +1,4 @@
-package cmd
+package commands
 
 import (
 	"log/slog"
@@ -9,7 +9,7 @@ import (
 
 // startCycleCmd represents the 'start cycle' command
 var startCycleCmd = &cobra.Command{
-	Use:   "cycle [VM_PATH]",
+	Use:   "start-cycle [VM_PATH]",
 	Short: "Starts a full backup cycle for a specific VM.",
 	Long: `This command initiates a complete backup cycle for the specified virtual machine.
 It will perform a full backup and store it in the configured S3 bucket.`,
@@ -82,7 +82,7 @@ It will perform a full backup and store it in the configured S3 bucket.`,
 
 func init() {
 	// Add 'cycle' as a subcommand to the 'start' command.
-	startCmd.AddCommand(startCycleCmd)
+	rootCmd.AddCommand(startCycleCmd)
 
 	// You can add flags specific to this command here if needed.
 	// For example:
