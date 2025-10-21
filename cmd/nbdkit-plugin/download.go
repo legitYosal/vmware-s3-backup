@@ -22,15 +22,15 @@ func NewSafeDownload() *SafeDownload {
 
 func (s *SafeDownload) LoadPartFromS3(partNumber int32) error {
 	partKey := vms3.GetS3FullObjectKey(diskManifest.ObjectKey, partNumber+1)
-	partData, err := s3DB.GetObject(context.Background(), partKey)
+	buff, err := s3DB.GetObject(context.Background(), partKey)
 	if err != nil {
 		return fmt.Errorf("failed to get object: %w", err)
 	}
-	decompressedData, err := vms3.DecompressBufferZstd(partData, diskManifest.FullChunksMetadata[partNumber].Length)
+	buff, err = vms3.DecompressBufferZstd(buff, diskManifest.FullChunksMetadata[partNumber].Length)
 	if err != nil {
 		return fmt.Errorf("failed to decompress data: %w", err)
 	}
-	lruCache.AddPart(partNumber, decompressedData)
+	lruCache.AddPart(partNumber, buff)
 	return nil
 }
 
