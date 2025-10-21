@@ -38,7 +38,7 @@ func (s *SafeDownload) LoadPart(partNumber int32) error {
 
 	if diskManifest.FullChunksMetadata[partNumber].Compression == vms3.S3CompressionZstd {
 		if lruCache.HasPart(partNumber) {
-			lruCache.LockPart(partNumber)
+			lruCache.MakePartBusy(partNumber)
 
 			nbdkit.Debug(fmt.Sprintf("Cache HIT, Part is already in lru cache, skipping load from s3: %d", partNumber))
 		} else {

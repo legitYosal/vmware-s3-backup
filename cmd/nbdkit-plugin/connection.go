@@ -50,25 +50,29 @@ func (c *VmwareS3BackupConnection) PRead(buf []byte, offset uint64, flags uint32
 		section2Length := readSize - section1Length
 		data1, err := lruCache.ReadFrom(partNumber, section1Start, section1Length)
 		if err != nil {
+			lruCache.MakePartFree(partNumber)
 			return fmt.Errorf("failed to read from cache: %w", err)
 		}
 		data2, err := lruCache.ReadFrom(partNumber+1, section2Start, section2Length)
 		if err != nil {
+			lruCache.MakePartFree(partNumber)
+			lruCache.MakePartFree(partNumber + 1)
 			return fmt.Errorf("failed to read from cache: %w", err)
 		}
 		copy(buf, data1)
 		copy(buf[section1Length:], data2)
-		lruCache.UnlockPart(partNumber)
-		lruCache.UnlockPart(partNumber + 1)
+		lruCache.MakePartFree(partNumber)
+		lruCache.MakePartFree(partNumber + 1)
 
 	} else {
 		safeDownload.LoadPart(partNumber)
 		data, err := lruCache.ReadFrom(partNumber, offset-partStart, readSize)
 		if err != nil {
+			lruCache.MakePartFree(partNumber)
 			return fmt.Errorf("failed to read from cache: %w", err)
 		}
 		copy(buf, data)
-		lruCache.UnlockPart(partNumber)
+		lruCache.MakePartFree(partNumber)
 	}
 	pid := os.Getpid()
 	var stackBuf [64]byte
@@ -92,6 +96,6 @@ func (c *VmwareS3BackupConnection) CanFlush() (bool, error) {
 
 func (c *VmwareS3BackupConnection) Close() {
 	for partNumber := range lruCache.queue {
-		lruCache.UnlockPart(int32(partNumber))
+		lruCache.MakePartFree(int32(partNumber))
 	}
 }

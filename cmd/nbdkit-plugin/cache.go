@@ -3,24 +3,34 @@ package main
 import (
 	"fmt"
 	"sync"
+
+	"github.com/legitYosal/vmware-s3-backup/pkg/vms3"
 )
 
 const MaxNumberOfInMemoryParts = 10
 
 type LruCache struct {
-	parts         map[int32][]byte
-	locks         map[int32]bool
-	numberOfParts int32
-	queue         []int32
-	mutex         sync.RWMutex
+	buffers            map[int32][]byte
+	bufferBusy         map[int32]bool
+	partsBufferMapping map[int32]int32
+	partsBusy          map[int32]bool
+	numberOfParts      int32
+	queue              []int32
+	mutex              sync.RWMutex
 }
 
 func NewLruCache() *LruCache {
+	buffers := make(map[int32][]byte, MaxNumberOfInMemoryParts)
+	for i := int32(0); i < MaxNumberOfInMemoryParts; i++ {
+		buffers[i] = make([]byte, vms3.MaxChunkSize)
+	}
 	return &LruCache{
-		parts: make(map[int32][]byte),
-		locks: make(map[int32]bool),
-		queue: make([]int32, 0),
-		mutex: sync.RWMutex{},
+		buffers:            buffers,
+		bufferBusy:         make(map[int32]bool),
+		partsBufferMapping: make(map[int32]int32),
+		partsBusy:          make(map[int32]bool),
+		queue:              make([]int32, 0),
+		mutex:              sync.RWMutex{},
 	}
 }
 
@@ -33,27 +43,27 @@ func (c *LruCache) GetNumberOfParts() int32 {
 func (c *LruCache) GetPart(partNumber int32) ([]byte, error) {
 	c.mutex.RLock()
 	defer c.mutex.RUnlock()
-	part, ok := c.parts[partNumber]
+	bufferIndex, ok := c.partsBufferMapping[partNumber]
 	if !ok {
 		return nil, fmt.Errorf("part %d not found", partNumber)
 	}
-	return part, nil
+	return c.buffers[bufferIndex], nil
 }
 
 func (c *LruCache) HasPart(partNumber int32) bool {
 	c.mutex.RLock()
 	defer c.mutex.RUnlock()
-	_, ok := c.parts[partNumber]
+	_, ok := c.partsBufferMapping[partNumber]
 	return ok
 }
 
 func (c *LruCache) ReadFrom(partNumber int32, offset uint64, length uint64) ([]byte, error) {
 	c.mutex.Lock()
 	defer c.mutex.Unlock()
-	part, ok := c.parts[partNumber]
+	bufferIndex, ok := c.partsBufferMapping[partNumber]
 	if !ok {
 		if IsSparse(partNumber) {
-			return make([]byte, length), nil
+			return zeroBuffer[:length], nil
 		}
 		return nil, fmt.Errorf("part %d not found", partNumber)
 	}
@@ -67,22 +77,22 @@ func (c *LruCache) ReadFrom(partNumber int32, offset uint64, length uint64) ([]b
 	}
 	c.queue = append(c.queue[:index], c.queue[index+1:]...)
 	c.queue = append(c.queue, partNumber)
-	return part[offset : offset+length], nil // we have checked boundary before calling this function
+	return c.buffers[bufferIndex][offset : offset+length], nil // we have checked boundary before calling this function
 }
 
-func (c *LruCache) LockPart(partNumber int32) error {
+func (c *LruCache) MakePartBusy(partNumber int32) error {
 	c.mutex.Lock()
 	defer c.mutex.Unlock()
-	c.locks[partNumber] = true
+	c.partsBusy[partNumber] = true
 	return nil
 }
 
-func (c *LruCache) UnlockPart(partNumber int32) error {
+func (c *LruCache) MakePartFree(partNumber int32) error {
 	c.mutex.Lock()
 	defer c.mutex.Unlock()
-	_, ok := c.parts[partNumber]
+	_, ok := c.partsBusy[partNumber]
 	if ok {
-		c.locks[partNumber] = false
+		c.partsBusy[partNumber] = false
 	}
 	return nil
 }
@@ -94,12 +104,15 @@ func (c *LruCache) AddPart(partNumber int32, data []byte) error {
 	if c.numberOfParts >= MaxNumberOfInMemoryParts {
 		deletedAny := false
 		for index, partNumber := range c.queue {
-			if c.locks[partNumber] {
+			if c.partsBusy[partNumber] {
 				continue
 			}
 			deletedAny = true
-			delete(c.parts, partNumber)
-			delete(c.locks, partNumber)
+			buffIndex := c.partsBufferMapping[partNumber]
+			c.bufferBusy[buffIndex] = false
+			copy(c.buffers[buffIndex], zeroBuffer)
+			delete(c.partsBufferMapping, partNumber)
+			delete(c.partsBusy, partNumber)
 			c.queue = append(c.queue[:index], c.queue[index+1:]...)
 			c.numberOfParts--
 			break
@@ -108,9 +121,16 @@ func (c *LruCache) AddPart(partNumber int32, data []byte) error {
 			return fmt.Errorf("failed to delete any part from cache, all parts are locked")
 		}
 	}
-	c.parts[partNumber] = data
-	c.locks[partNumber] = true
-	c.queue = append(c.queue, partNumber)
-	c.numberOfParts++
-	return nil
+	for i := int32(0); i < MaxNumberOfInMemoryParts; i++ {
+		if !c.bufferBusy[i] {
+			copy(c.buffers[i], data)
+			c.bufferBusy[i] = true
+			c.partsBufferMapping[partNumber] = i
+			c.partsBusy[partNumber] = true
+			c.queue = append(c.queue, partNumber)
+			c.numberOfParts++
+			return nil
+		}
+	}
+	return fmt.Errorf("failed to add part to cache, all buffers are busy")
 }

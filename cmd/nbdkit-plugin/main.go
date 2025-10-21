@@ -34,6 +34,7 @@ var diskManifest *vms3.DiskManifest
 var numberOfParts int32
 var lruCache *LruCache
 var safeDownload *SafeDownload
+var zeroBuffer []byte
 
 //export plugin_init
 func plugin_init() unsafe.Pointer {

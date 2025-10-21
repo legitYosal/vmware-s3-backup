@@ -71,6 +71,7 @@ func (c *VmwareS3BackupPlugin) ConfigComplete() error {
 	if diskKey == "" {
 		return fmt.Errorf("disk-key is required")
 	}
+	zeroBuffer = make([]byte, vms3.MaxChunkSize)
 	var err error
 	s3DB, err = vms3.CreateS3Client(context.Background(), s3Url, s3AccessKey, s3SecretKey, s3Region, s3BucketName)
 	if err != nil {
