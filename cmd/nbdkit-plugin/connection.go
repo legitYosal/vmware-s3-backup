@@ -80,9 +80,8 @@ func (c *VmwareS3BackupConnection) CanFlush() (bool, error) {
 	return false, nil
 }
 
-func (c *VmwareS3BackupConnection) Close() error {
+func (c *VmwareS3BackupConnection) Close() {
 	for partNumber := range lruCache.queue {
 		lruCache.UnlockPart(int32(partNumber))
 	}
-	return nil
 }
