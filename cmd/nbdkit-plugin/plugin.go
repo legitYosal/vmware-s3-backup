@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"os"
 
 	"github.com/legitYosal/vmware-s3-backup/pkg/vms3"
 	"libguestfs.org/nbdkit"
@@ -88,5 +89,15 @@ func (c *VmwareS3BackupPlugin) ConfigComplete() error {
 	lruCache = NewLruCache()
 	safeDownload = NewSafeDownload()
 	safeDownload.LoadPart(1)
+
+	handler := slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{
+		Level: slog.LevelDebug,
+	})
+	Log := slog.New(handler).With(
+		slog.String("app", "vmware-s3-backup"),
+	)
+	slog.SetDefault(Log)
+
+	slog.Debug("Config complete")
 	return nil
 }

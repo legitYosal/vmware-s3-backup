@@ -3,6 +3,8 @@ package main
 import (
 	"fmt"
 	"log/slog"
+	"os"
+	"runtime"
 
 	"github.com/legitYosal/vmware-s3-backup/pkg/vms3"
 )
@@ -68,7 +70,13 @@ func (c *VmwareS3BackupConnection) PRead(buf []byte, offset uint64, flags uint32
 		copy(buf, data)
 		lruCache.UnlockPart(partNumber)
 	}
-
+	pid := os.Getpid()
+	var stackBuf [64]byte
+	n := runtime.Stack(stackBuf[:], false)
+	s := string(stackBuf[:n])
+	var memStats runtime.MemStats
+	runtime.ReadMemStats(&memStats)
+	slog.Debug("***STATS", "PID", pid, "GID", s, "TMem", memStats.TotalAlloc, "HMem", memStats.HeapAlloc, "Number Goroutines", runtime.NumGoroutine())
 	return nil
 }
 
