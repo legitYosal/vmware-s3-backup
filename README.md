@@ -92,4 +92,30 @@ For incremental backup, we will query vmware for the changed areas on a disk(wit
 So our ultimate solution to save a backup on s3, we are going to ditch the multi part upload, and save each chunk in a new file for example: `vm-<key>/disk-<key>/full/00004` keeping the 64MB data in that file, enables us to compress it using zstd, also we will keep a manifest file to keep the state of the backup.
 
 ## NBD Server
-In order to simplify reading from the existing backups, we can use the golang plugin present at `cmd/nbdkit-plugin/`s
+In order to simplify reading from the existing backups, we can use the golang plugin present at `cmd/nbdkit-plugin/`, you can use it by running the nbdkit server:
+```bash
+$ CGO_ENABLED=1 go build -o nbd.so --buildmode=c-shared cmd/nbdkit-plugin/*
+$ nbdkit -f -v ./minimal.so \
+    --threads=2 \
+    s3-url="s3-url" \
+    s3-secret-key="s3-secret-key" \
+    s3-access-key="s3-access-key" \
+    s3-region="tehran" \
+    s3-bucket-name="test-vmware-backup-s3" \
+    vm-key="Debian-Target02" \
+    disk-key="2000" \
+    -P /tmp/s3-nbd.pid \
+    -i 127.0.0.1 \
+    -p 10809
+```
+This will expose a NBD server on local port, which will enable you to use it or mount it, or even feed it to tools like virt-v2v, for example:
+```bash
+$ sudo qemu-nbd -d /dev/nbd0
+$ sudo modprobe nbd max_part=8
+$ sudo qemu-nbd -c /dev/nbd0 -r nbd:localhost:10809
+$ qemu-img info nbd:localhost:10809
+$ sudo fdisk -l /dev/nbd0
+$ sudo mkdir /mnt/nbd/
+$ sudo mount -r -t ext4 -o noload /dev/nbd0p1 /mnt/nbd/
+$ ls -l /mnt/nbd/
+```
