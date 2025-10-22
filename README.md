@@ -90,3 +90,6 @@ For incremental backup, we will query vmware for the changed areas on a disk(wit
 3. I have no control over compression to S3, because it is a single file and I have different dimension of areas hence no compression
 
 So our ultimate solution to save a backup on s3, we are going to ditch the multi part upload, and save each chunk in a new file for example: `vm-<key>/disk-<key>/full/00004` keeping the 64MB data in that file, enables us to compress it using zstd, also we will keep a manifest file to keep the state of the backup.
+
+## NBD Server
+In order to simplify reading from the existing backups, we can use the golang plugin present at `cmd/nbdkit-plugin/`s
