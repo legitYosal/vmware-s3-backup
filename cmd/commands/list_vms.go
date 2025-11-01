@@ -53,4 +53,5 @@ var listVmsCmd = &cobra.Command{
 func init() {
 	// Add the 'vms' command as a subcommand of the 'list' command.
 	rootCmd.Flags().BoolP("detailed", "d", false, "Include extensive configuration and disk details for each VM.")
+	rootCmd.AddCommand(listVmsCmd)
 }

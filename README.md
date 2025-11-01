@@ -23,7 +23,7 @@ In order to use the CLI provided by this repo you must:
 ### List vms:
 You can list vms:
 ```
-$ go run main.go list-vms --detailed
+$ go run cmd/cli/main.go list-vms --detailed
 ┌─────────────────┬────┬───────────────────────────────────┬───────────┬───────────┬───────┬────────────────────┬───────────┬─────────────┐
 │      NAME       │ ID │               PATH                │  STATUS   │ MEMORY GB │ CP US │       DISKS        │ SNAPSHOTS │ CBT ENABLED │
 ├─────────────────┼────┼───────────────────────────────────┼───────────┼───────────┼───────┼────────────────────┼───────────┼─────────────┤
@@ -34,9 +34,9 @@ $ go run main.go list-vms --detailed
 ```
 ### Enable CBT:
 ```
-$ go run main.go vm enable-cbt Debian-Target02
+$ go run cmd/cli/main.go vm enable-cbt Debian-Target02
 time=2025-10-13T15:48:19.525+03:30 level=INFO msg="CBT enabled successfully"
-$ go run main.go list-vms --detailed          
+$ go run cmd/cli/main.go list-vms --detailed          
 ┌─────────────────┬────┬───────────────────────────────────┬───────────┬───────────┬───────┬────────────────────┬───────────┬─────────────┐
 │      NAME       │ ID │               PATH                │  STATUS   │ MEMORY GB │ CP US │       DISKS        │ SNAPSHOTS │ CBT ENABLED │
 ├─────────────────┼────┼───────────────────────────────────┼───────────┼───────────┼───────┼────────────────────┼───────────┼─────────────┤
@@ -47,7 +47,7 @@ $ go run main.go list-vms --detailed
 ```
 ### List existing backups:
 ```
-$ go run main.go list-backups
+$ go run cmd/cli/main.go list-backups
 ┌─────────────────────────┬─────────────────┬────────────────┬────────────────────────────────────────┐
 │       OBJECT KEY        │     VM KEY      │     DISKS      │             ROOT DISK KEY              │
 ├─────────────────────────┼─────────────────┼────────────────┼────────────────────────────────────────┤
@@ -56,12 +56,12 @@ $ go run main.go list-backups
 ```
 ### Start a backup cycle
 ```
-$ go run main.go start-cycle Debian-Target02
+$ go run cmd/cli/main.go start-cycle Debian-Target02
 ```
 
 ### Download an existing backup to disk
 ```
-$ go run main.go download-backup Debian-Target02 2000 ../disk200.raw
+$ go run cmd/cli/main.go download-backup Debian-Target02 2000 ../disk200.raw
 ```
 In order to verify it very fast if it has the correct data or not on ubuntu you can do these steps:
 ```
@@ -80,7 +80,7 @@ $ sudo losetup -d $LOOP_DEVICE
 ### Upload from local to VMware
 You can upload a disk from local to VMware, also note that the exported disk data is in raw format and you have to convert it to vmdk first, next:
 ```
-$ go run main.go restore-disk --data-store-name DS1 --local-path ./disk2000.vmdk --remote-path RestoredImages
+$ go run cmd/cli/main.go restore-disk --data-store-name DS1 --local-path ./disk2000.vmdk --remote-path RestoredImages
 ```
 
 ## How this works?
