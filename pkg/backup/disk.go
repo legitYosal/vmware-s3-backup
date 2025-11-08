@@ -9,7 +9,6 @@ import (
 	"log/slog"
 	"os"
 	"os/signal"
-	"strconv"
 	"syscall"
 
 	"github.com/legitYosal/vmware-s3-backup/pkg/nbdkit"
@@ -21,11 +20,13 @@ import (
 )
 
 type DiskTarget struct {
-	Disk            *types.VirtualDisk
-	SocketRef       *nbdkit.NbdkitSocket
-	VM              *DetailedVirtualMachine
-	VMKey           string
-	CurrentChangeID *vmware.ChangeID
+	Disk                 *types.VirtualDisk
+	SocketRef            *nbdkit.NbdkitSocket
+	VM                   *DetailedVirtualMachine
+	VMKey                string
+	CurrentChangeID      *vmware.ChangeID
+	BackupDiskIdentifier string
+	DeviceKey            int32
 }
 
 // these can be of two types of multipart copy or upload
@@ -40,12 +41,21 @@ func NewDiskTarget(disk *types.VirtualDisk, socketRef *nbdkit.NbdkitSocket, vm *
 	if err != nil {
 		return nil, err
 	}
+	if vm.Properties.Config == nil || vm.Properties.Config.Hardware.Device == nil {
+		return nil, fmt.Errorf("VM config or hardware list is nil, cannot determine disk IDs")
+	}
+	identifier, err := vmware.CanonicalDiskKey(vm.Properties, disk)
+	if err != nil {
+		return nil, err
+	}
 	return &DiskTarget{
-		Disk:            disk,
-		SocketRef:       socketRef,
-		VM:              vm,
-		VMKey:           vmKey,
-		CurrentChangeID: changeID,
+		Disk:                 disk,
+		SocketRef:            socketRef,
+		VM:                   vm,
+		VMKey:                vmKey,
+		CurrentChangeID:      changeID,
+		BackupDiskIdentifier: identifier,
+		DeviceKey:            disk.Key,
 	}, nil
 }
 
@@ -54,7 +64,7 @@ func (d *DiskTarget) GetDiskObjectKey() string {
 }
 
 func (d *DiskTarget) GetDiskKey() string {
-	return strconv.Itoa(int(d.Disk.Key))
+	return d.BackupDiskIdentifier
 }
 
 func (d *DiskTarget) GetDiskSizeBytes() int64 {

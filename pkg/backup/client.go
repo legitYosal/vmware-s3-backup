@@ -7,6 +7,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -36,6 +37,11 @@ type VmwareS3BackupClient struct {
 type DiskData struct {
 	Name       string
 	CapacityGB int
+	Key        int32
+	Identifier string
+	Controller string
+	UnitNumber *int32
+	IsRootDisk bool
 }
 type VMData struct {
 	Name       string
@@ -197,39 +203,58 @@ func (c *VmwareS3BackupClient) ListVMs(ctx context.Context) ([]VMData, error) {
 	return vmData, nil
 }
 
-func extractDisks(config types.VirtualMachineConfigInfo) []DiskData {
-	var disks []DiskData
-
-	if config.Hardware.Device == nil {
-		return disks
-	}
-
-	for _, device := range config.Hardware.Device {
-		// Look for VirtualDisk devices
-		if disk, ok := device.(*types.VirtualDisk); ok {
-			// Get the disk key and capacity
-			diskKey := disk.Key
-			diskName := "Virtual-Disk-" + strconv.Itoa(int(diskKey)) // Default name
-
-			// Get capacity in KB (CapacityInKB is the correct field)
-			capacityKB := disk.CapacityInKB
-
-			// Try to find the device label (e.g., "Hard Disk 1")
-			if disk.DeviceInfo != nil {
-				if baseDesc, ok := disk.DeviceInfo.(*types.Description); ok {
-					diskName = baseDesc.Label
-					diskName = strings.ReplaceAll(diskName, " ", "-")
-				}
+func extractDisks(vm *mo.VirtualMachine) ([]DiskData, error) {
+	var out []DiskData
+	bootKey := vmware.FindBootDiskKey(vm)
+	for _, dv := range vm.Config.Hardware.Device {
+		d, ok := dv.(*types.VirtualDisk)
+		if !ok {
+			continue
+		}
+		label := "Virtual-Disk-" + strconv.Itoa(int(d.Key))
+		if d.DeviceInfo != nil {
+			if desc, ok := d.DeviceInfo.(*types.Description); ok && desc.Label != "" {
+				label = strings.ReplaceAll(desc.Label, " ", "-")
 			}
+		}
+		capGB := int(d.CapacityInBytes / (1024 * 1024 * 1024))
+		identifier, err := vmware.CanonicalDiskKey(vm, d)
+		if err != nil {
+			return nil, err
+		}
+		ctl := controllerName(vm, d.ControllerKey)
+		out = append(out, DiskData{
+			Name:       label,
+			CapacityGB: capGB,
+			Key:        d.Key,
+			Identifier: identifier,
+			UnitNumber: d.UnitNumber,
+			Controller: ctl,
+			IsRootDisk: d.Key == *bootKey,
+		})
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Identifier < out[j].Identifier })
+	return out, nil
+}
 
-			disks = append(disks, DiskData{
-				Name: diskName,
-				// Convert KB to GB
-				CapacityGB: int(capacityKB / 1024 / 1024),
-			})
+func controllerName(vm *mo.VirtualMachine, key int32) string {
+	for _, dv := range vm.Config.Hardware.Device {
+		switch c := dv.(type) {
+		case *types.VirtualSATAController:
+			if c.Key == key {
+				return fmt.Sprintf("SATA#%d", c.BusNumber)
+			}
+		case *types.VirtualSCSIController:
+			if c.Key == key {
+				return fmt.Sprintf("SCSI#%d", c.BusNumber)
+			}
+		case *types.VirtualNVMEController:
+			if c.Key == key {
+				return fmt.Sprintf("NVMe#%d", c.BusNumber)
+			}
 		}
 	}
-	return disks
+	return "?"
 }
 
 // countSnapshots recursively counts all snapshots in a VM's snapshot tree
@@ -265,6 +290,7 @@ func (c *VmwareS3BackupClient) DetailedListVMs(ctx context.Context) ([]VMData, e
 		"name",
 		"runtime.powerState",
 		"config.hardware",
+		"config.bootOptions",
 		"config.changeTrackingEnabled",
 		"config.extraConfig",
 		"summary.config",
@@ -285,7 +311,10 @@ func (c *VmwareS3BackupClient) DetailedListVMs(ctx context.Context) ([]VMData, e
 		// Extract disk information from hardware config
 		var disks []DiskData
 		if vm.Config != nil && vm.Config.Hardware.Device != nil {
-			disks = extractDisks(*vm.Config)
+			disks, err = extractDisks(&vm)
+			if err != nil {
+				return nil, fmt.Errorf("failed to extract disks: %w", err)
+			}
 		}
 
 		// Get memory in GB
