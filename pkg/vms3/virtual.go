@@ -216,6 +216,11 @@ func (v *VirtualObjectDisk) RestoreDiskToLocalPath(ctx context.Context, s3DB *S3
 	}
 	defer file.Close()
 
+	slog.Debug("Pre-allocating sparse file", "path", localPath, "size", v.Manifest.SizeBytes)
+	if err := file.Truncate(v.Manifest.SizeBytes); err != nil {
+		return fmt.Errorf("failed to truncate file to %d bytes: %w", v.Manifest.SizeBytes, err)
+	}
+
 	semaphore := make(chan struct{}, MaxConcurrentDownloads)
 
 	go func() {
